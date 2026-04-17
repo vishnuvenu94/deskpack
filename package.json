@@ -1,0 +1,52 @@
+{
+  "name": "shipdesk",
+  "version": "0.1.0",
+  "description": "Convert any full-stack JavaScript web app into a cross-platform desktop application",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "shipdesk": "./dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "prepublishOnly": "npm run build",
+    "lint": "tsc --noEmit"
+  },
+  "keywords": [
+    "electron",
+    "desktop",
+    "cli",
+    "fullstack",
+    "converter",
+    "cross-platform",
+    "web-app",
+    "packaging"
+  ],
+  "author": "",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "chalk": "^5.4.1",
+    "commander": "^13.1.0",
+    "esbuild": "^0.25.0",
+    "fast-glob": "^3.3.3",
+    "ora": "^8.2.0",
+    "prompts": "^2.4.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.0",
+    "@types/prompts": "^2.4.9",
+    "typescript": "^5.7.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": ""
+  }
+}

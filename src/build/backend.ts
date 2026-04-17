@@ -1,0 +1,54 @@
+import fs from "node:fs";
+import path from "node:path";
+import esbuild from "esbuild";
+import type { ShipdeskConfig } from "../types.js";
+import { log } from "../utils/logger.js";
+
+/**
+ * Bundle the backend server into a single `server.cjs` file using esbuild.
+ *
+ * Native modules (e.g. playwright, sharp) are marked as external so they
+ * are not inlined and can be provided at runtime.
+ */
+export async function bundleBackend(
+  rootDir: string,
+  config: ShipdeskConfig,
+  outDir: string,
+): Promise<void> {
+  const entry = path.resolve(rootDir, config.backend.entry);
+  const outfile = path.join(outDir, "server.mjs");
+
+  if (!fs.existsSync(entry)) {
+    throw new Error(`Backend entry point not found: ${entry}`);
+  }
+
+  const external = [...new Set(config.backend.nativeDeps)];
+
+  log.step("Bundling backend", `${config.backend.entry} → server.mjs`);
+
+  if (external.length > 0) {
+    log.dim(`  External modules: ${external.join(", ")}`);
+  }
+
+  await esbuild.build({
+    entryPoints: [entry],
+    bundle: true,
+    platform: "node",
+    target: "node18",
+    format: "esm",
+    outfile,
+    external,
+    sourcemap: true,
+    minify: false, // keep readable for debugging
+    banner: {
+      js: [
+        'import { createRequire as __shipdeskCreateRequire } from "node:module";',
+        "const require = __shipdeskCreateRequire(import.meta.url);",
+        "// Bundled by shipdesk",
+      ].join("\n"),
+    },
+    logLevel: "warning",
+  });
+
+  log.success(`Backend bundled → ${path.relative(rootDir, outfile)}`);
+}
