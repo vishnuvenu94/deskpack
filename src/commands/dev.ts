@@ -1,27 +1,40 @@
 import fs from "node:fs";
-import http from "node:http";
 import path from "node:path";
 import { spawn, type ChildProcess } from "node:child_process";
 import chalk from "chalk";
 import { loadConfig } from "../config.js";
-import { isPortInUse } from "../utils/net.js";
+import { generateElectronMain } from "../generate/electron-main.js";
+import { findAvailablePort, isPortInUse, waitForHttpEndpoint } from "../utils/net.js";
 import { log } from "../utils/logger.js";
+import type { DeskpackConfig } from "../types.js";
 
 /**
- * `shipdesk dev`
+ * `deskpack dev`
  *
  * 1. Start the project's dev servers (if not already running).
  * 2. Wait for the frontend port to become available.
- * 3. Launch Electron pointing at the Vite / Webpack dev server.
+ * 3. Launch Electron pointing at the frontend dev server.
  */
 export async function devCommand(rootDir: string): Promise<void> {
   log.banner();
   const config = loadConfig(rootDir);
 
-  const desktopDir = path.join(rootDir, ".shipdesk", "desktop");
+  if (config.topology === "ssr-framework") {
+    throw new Error(
+      "Next.js SSR/server runtime projects are not supported by deskpack dev. Use static export mode.",
+    );
+  }
+
+  if (config.topology === "unsupported") {
+    throw new Error(
+      "Unsupported topology. Deskpack could not determine a reliable frontend/backend runtime layout.",
+    );
+  }
+
+  const desktopDir = path.join(rootDir, ".deskpack", "desktop");
   if (!fs.existsSync(path.join(desktopDir, "node_modules", "electron"))) {
     log.error(
-      `Electron not installed. Run ${chalk.cyan("npx shipdesk init")} first.`,
+      `Electron not installed. Run ${chalk.cyan("npx deskpack init")} first.`,
     );
     process.exit(1);
   }
@@ -29,116 +42,204 @@ export async function devCommand(rootDir: string): Promise<void> {
   log.info("Starting development mode…");
   log.blank();
 
-  // --- Start dev servers (if needed) ---------------------------------------
+  const hasBackend =
+    config.topology !== "frontend-only-static" && config.backend.path !== "";
+  let frontendPort = config.frontend.devPort;
+  let backendPort = hasBackend ? config.backend.devPort : 0;
+
+  const frontendAlreadyRunning = await isPortInUse(frontendPort);
+  const backendAlreadyRunning = hasBackend
+    ? await isPortInUse(backendPort)
+    : true;
+
   let devProcesses: ChildProcess[] = [];
 
-  const frontendUp = await isPortInUse(config.frontend.devPort);
-  const backendUp = await isPortInUse(config.backend.devPort);
+  if (!frontendAlreadyRunning) {
+    const selected = await findAvailablePort(frontendPort);
+    frontendPort = selected.port;
+    if (!selected.reusedPreferred) {
+      log.warn(
+        `Frontend port ${config.frontend.devPort} is busy. Falling back to ${frontendPort}.`,
+      );
+    }
+  }
 
-  if (!frontendUp || !backendUp) {
+  if (hasBackend && !backendAlreadyRunning) {
+    const selected = await findAvailablePort(backendPort);
+    backendPort = selected.port;
+    if (!selected.reusedPreferred) {
+      log.warn(
+        `Backend port ${config.backend.devPort} is busy. Falling back to ${backendPort}.`,
+      );
+    }
+  }
+
+  if (!frontendAlreadyRunning || (hasBackend && !backendAlreadyRunning)) {
     const pm = config.monorepo.packageManager;
 
     if (config.monorepo.type !== "none") {
-      // Monorepo: start frontend and backend separately using workspace commands
       const frontendPkgPath = path.join(rootDir, config.frontend.path, "package.json");
-      const backendPkgPath = path.join(rootDir, config.backend.path, "package.json");
+      const backendPkgPath = hasBackend
+        ? path.join(rootDir, config.backend.path, "package.json")
+        : "";
 
-      if (!frontendUp) {
-        const frontendPkg = JSON.parse(fs.readFileSync(frontendPkgPath, "utf-8"));
-        const frontendDevCmd = frontendPkg.scripts?.dev ?? frontendPkg.scripts?.start ?? "dev";
-        log.step("Starting frontend dev…", `${pm} run ${frontendDevCmd}`);
+      if (!frontendAlreadyRunning) {
+        const frontendPkg = JSON.parse(fs.readFileSync(frontendPkgPath, "utf-8")) as {
+          name: string;
+          scripts?: Record<string, string>;
+        };
+        const frontendScript = frontendPkg.scripts?.dev ? "dev" : "start";
+        log.step("Starting frontend dev…", `${pm} run ${frontendScript}`);
 
         let args: string[];
         if (pm === "pnpm") {
-          args = ["--filter", frontendPkg.name, "run", frontendDevCmd];
+          args = ["--filter", frontendPkg.name, "run", frontendScript];
         } else if (pm === "yarn") {
-          args = ["workspace", frontendPkg.name, "run", frontendDevCmd];
+          args = ["workspace", frontendPkg.name, "run", frontendScript];
         } else {
-          args = ["--workspace", config.frontend.path, "run", frontendDevCmd];
+          args = ["--workspace", config.frontend.path, "run", frontendScript];
         }
 
-        const feProcess = spawn(pm, args, { cwd: rootDir, stdio: "pipe", shell: true });
-        feProcess.stdout?.on("data", (d: Buffer) => process.stdout.write(d));
-        feProcess.stderr?.on("data", (d: Buffer) => process.stderr.write(d));
+        const feProcess = spawn(pm, args, {
+          cwd: rootDir,
+          stdio: "pipe",
+          shell: true,
+          env: {
+            ...process.env,
+            PORT: String(frontendPort),
+            DESKPACK_FRONTEND_PORT: String(frontendPort),
+          },
+        });
+        feProcess.stdout?.on("data", (data: Buffer) => process.stdout.write(data));
+        feProcess.stderr?.on("data", (data: Buffer) => process.stderr.write(data));
         devProcesses.push(feProcess);
       }
 
-      if (!backendUp) {
-        const backendPkg = JSON.parse(fs.readFileSync(backendPkgPath, "utf-8"));
-        const backendDevCmd = backendPkg.scripts?.dev ?? backendPkg.scripts?.start ?? "dev";
-        log.step("Starting backend dev…", `${pm} run ${backendDevCmd}`);
+      if (hasBackend && !backendAlreadyRunning) {
+        const backendPkg = JSON.parse(fs.readFileSync(backendPkgPath, "utf-8")) as {
+          name: string;
+          scripts?: Record<string, string>;
+        };
+        const backendScript = backendPkg.scripts?.dev ? "dev" : "start";
+        log.step("Starting backend dev…", `${pm} run ${backendScript}`);
 
         let args: string[];
         if (pm === "pnpm") {
-          args = ["--filter", backendPkg.name, "run", backendDevCmd];
+          args = ["--filter", backendPkg.name, "run", backendScript];
         } else if (pm === "yarn") {
-          args = ["workspace", backendPkg.name, "run", backendDevCmd];
+          args = ["workspace", backendPkg.name, "run", backendScript];
         } else {
-          args = ["--workspace", config.backend.path, "run", backendDevCmd];
+          args = ["--workspace", config.backend.path, "run", backendScript];
         }
 
-        const beProcess = spawn(pm, args, { cwd: rootDir, stdio: "pipe", shell: true });
-        beProcess.stdout?.on("data", (d: Buffer) => process.stdout.write(d));
-        beProcess.stderr?.on("data", (d: Buffer) => process.stderr.write(d));
+        const beProcess = spawn(pm, args, {
+          cwd: rootDir,
+          stdio: "pipe",
+          shell: true,
+          env: {
+            ...process.env,
+            PORT: String(backendPort),
+            DESKPACK_BACKEND_PORT: String(backendPort),
+          },
+        });
+        beProcess.stdout?.on("data", (data: Buffer) => process.stdout.write(data));
+        beProcess.stderr?.on("data", (data: Buffer) => process.stderr.write(data));
         devProcesses.push(beProcess);
       }
     } else {
-      // Single package or non-mono: use single dev command from root
-      log.step("Starting dev servers…", `${pm} run dev`);
+      const frontendCwd =
+        config.frontend.path === "."
+          ? rootDir
+          : path.join(rootDir, config.frontend.path);
+      const label = hasBackend ? "Starting dev servers…" : "Starting frontend dev…";
+      log.step(label, `${pm} run dev`);
+
       const devProcess = spawn(pm, ["run", "dev"], {
-        cwd: rootDir,
+        cwd: frontendCwd,
         stdio: "pipe",
         shell: true,
+        env: {
+          ...process.env,
+          PORT: String(frontendPort),
+          DESKPACK_FRONTEND_PORT: String(frontendPort),
+          DESKPACK_BACKEND_PORT: hasBackend ? String(backendPort) : "",
+        },
       });
-      devProcess.stdout?.on("data", (d: Buffer) => process.stdout.write(d));
-      devProcess.stderr?.on("data", (d: Buffer) => process.stderr.write(d));
+      devProcess.stdout?.on("data", (data: Buffer) => process.stdout.write(data));
+      devProcess.stderr?.on("data", (data: Buffer) => process.stderr.write(data));
       devProcesses.push(devProcess);
     }
 
-    // Wait for the frontend port
-    log.step("Waiting for servers…");
-    await waitForPort(config.frontend.devPort, 30_000);
-    log.success(`Frontend ready on port ${config.frontend.devPort}`);
+    log.step("Waiting for frontend server…");
+    await waitForHttpEndpoint(frontendPort, ["/", "/index.html", "/healthz", "/health"], 30_000);
+    log.success(`Frontend ready on port ${frontendPort}`);
+
+    if (hasBackend && config.monorepo.type !== "none" && !backendAlreadyRunning) {
+      log.step("Waiting for backend server…");
+      await waitForHttpEndpoint(
+        backendPort,
+        [config.backend.healthCheckPath ?? "/", "/healthz", "/health", "/ready", "/"],
+        30_000,
+      );
+      log.success(`Backend ready on port ${backendPort}`);
+    }
   } else {
     log.success("Dev servers already running");
   }
 
-  // --- Launch Electron -----------------------------------------------------
-  log.step("Launching Electron window…");
+  const runtimeConfig: DeskpackConfig = {
+    ...config,
+    frontend: { ...config.frontend, devPort: frontendPort },
+    backend: { ...config.backend, devPort: backendPort || config.backend.devPort },
+  };
 
-  const electronBin = path.join(
-    desktopDir,
-    "node_modules",
-    ".bin",
-    "electron",
+  fs.writeFileSync(
+    path.join(desktopDir, "main.cjs"),
+    generateElectronMain(runtimeConfig),
   );
 
+  log.step(
+    "Using runtime ports",
+    hasBackend ? `frontend ${frontendPort}, backend ${backendPort}` : `frontend ${frontendPort}`,
+  );
+  log.step("Launching Electron window…");
+
+  const electronBin = path.join(desktopDir, "node_modules", ".bin", "electron");
   const electronProcess = spawn(electronBin, ["."], {
     cwd: desktopDir,
     stdio: "inherit",
   });
 
-  // --- Cleanup on exit -----------------------------------------------------
   const cleanup = async (): Promise<void> => {
     electronProcess.kill("SIGTERM");
-    for (const p of devProcesses) {
-      p.kill("SIGTERM");
+    for (const processHandle of devProcesses) {
+      processHandle.kill("SIGTERM");
     }
 
     await new Promise<void>((resolve) => {
       const timeout = setTimeout(() => {
         electronProcess.kill("SIGKILL");
-        for (const p of devProcesses) {
-          p.kill("SIGKILL");
+        for (const processHandle of devProcesses) {
+          processHandle.kill("SIGKILL");
         }
         resolve();
       }, 3000);
 
       electronProcess.on("exit", () => {
         clearTimeout(timeout);
-        if (devProcesses.every((p) => p.killed)) resolve();
+        if (devProcesses.every((processHandle) => processHandle.killed)) {
+          resolve();
+        }
       });
-      Promise.all(devProcesses.map((p) => new Promise<void>((r) => p.on("exit", r)))).then(() => {
+
+      Promise.all(
+        devProcesses.map(
+          (processHandle) =>
+            new Promise<void>((resolveProcess) =>
+              processHandle.on("exit", () => resolveProcess()),
+            ),
+        ),
+      ).then(() => {
         clearTimeout(timeout);
         resolve();
       });
@@ -151,38 +252,9 @@ export async function devCommand(rootDir: string): Promise<void> {
   process.on("SIGTERM", () => cleanup());
 
   electronProcess.on("exit", () => {
-    for (const p of devProcesses) {
-      p.kill("SIGTERM");
+    for (const processHandle of devProcesses) {
+      processHandle.kill("SIGTERM");
     }
     process.exit(0);
-  });
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function waitForPort(port: number, timeoutMs: number): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const start = Date.now();
-
-    const check = (): void => {
-      const req = http.get(`http://localhost:${port}`, (res) => {
-        res.resume();
-        resolve();
-      });
-
-      req.on("error", () => {
-        if (Date.now() - start > timeoutMs) {
-          reject(new Error(`Timeout waiting for port ${port}`));
-        } else {
-          setTimeout(check, 500);
-        }
-      });
-
-      req.end();
-    };
-
-    check();
   });
 }

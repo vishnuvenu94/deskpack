@@ -31,6 +31,30 @@ export function waitForPort(port: number, timeoutMs = 15_000): Promise<void> {
 }
 
 /**
+ * Wait for an HTTP endpoint to respond on one of the probe paths.
+ */
+export async function waitForHttpEndpoint(
+  port: number,
+  probePaths: string[],
+  timeoutMs = 15_000,
+): Promise<void> {
+  const startedAt = Date.now();
+  const normalized = uniqueProbePaths(probePaths.length > 0 ? probePaths : ["/"]);
+
+  while (Date.now() - startedAt <= timeoutMs) {
+    for (const probePath of normalized) {
+      const ok = await probe(port, probePath);
+      if (ok) return;
+    }
+    await sleep(350);
+  }
+
+  throw new Error(
+    `Timed out waiting for server on port ${port}. Tried: ${normalized.join(", ")}`,
+  );
+}
+
+/**
  * Check whether a TCP port is already in use.
  */
 export function isPortInUse(port: number): Promise<boolean> {
@@ -45,4 +69,88 @@ export function isPortInUse(port: number): Promise<boolean> {
 
     server.listen(port);
   });
+}
+
+/**
+ * Select an available port. Uses `preferredPort` when possible, otherwise
+ * allocates a free fallback port.
+ */
+export async function findAvailablePort(
+  preferredPort: number,
+): Promise<{ port: number; reusedPreferred: boolean }> {
+  if (preferredPort > 0 && !(await isPortInUse(preferredPort))) {
+    return { port: preferredPort, reusedPreferred: true };
+  }
+
+  const fallback = await allocateEphemeralPort();
+  return { port: fallback, reusedPreferred: false };
+}
+
+function allocateEphemeralPort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const server = net.createServer();
+
+    server.once("error", reject);
+    server.once("listening", () => {
+      const address = server.address();
+      const port =
+        typeof address === "object" && address
+          ? address.port
+          : 0;
+      server.close((closeError) => {
+        if (closeError) {
+          reject(closeError);
+          return;
+        }
+        if (!port) {
+          reject(new Error("Failed to allocate a free port."));
+          return;
+        }
+        resolve(port);
+      });
+    });
+
+    server.listen(0, "127.0.0.1");
+  });
+}
+
+function probe(port: number, probePath: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const req = http.get(
+      {
+        hostname: "127.0.0.1",
+        port,
+        path: probePath,
+        timeout: 1200,
+      },
+      (res) => {
+        res.resume();
+        resolve(Boolean(res.statusCode && res.statusCode < 500));
+      },
+    );
+
+    req.on("timeout", () => {
+      req.destroy();
+      resolve(false);
+    });
+    req.on("error", () => resolve(false));
+  });
+}
+
+function uniqueProbePaths(paths: string[]): string[] {
+  const seen = new Set<string>();
+  const output: string[] = [];
+
+  for (const value of paths) {
+    const normalized = value.startsWith("/") ? value : `/${value}`;
+    if (seen.has(normalized)) continue;
+    seen.add(normalized);
+    output.push(normalized);
+  }
+
+  return output;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }

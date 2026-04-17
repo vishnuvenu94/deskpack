@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { Command } from "commander";
-import { initCommand } from "./commands/init.js";
+import { initCommand, type InitCommandOptions } from "./commands/init.js";
 import { devCommand } from "./commands/dev.js";
 import { buildCommand } from "./commands/build.js";
 import { log } from "./utils/logger.js";
@@ -12,7 +12,7 @@ function checkNodeVersion(): void {
   const [major] = process.version.slice(1).split(".").map(Number);
   if (major < MIN_NODE_VERSION) {
     log.error(
-      `shipdesk requires Node.js ${MIN_NODE_VERSION} or later. You are using ${process.version}.`,
+      `deskpack requires Node.js ${MIN_NODE_VERSION} or later. You are using ${process.version}.`,
     );
     process.exit(1);
   }
@@ -23,18 +23,22 @@ checkNodeVersion();
 const program = new Command();
 
 program
-  .name("shipdesk")
+  .name("deskpack")
   .description(
-    "Convert any full-stack JavaScript web app into a cross-platform desktop application.",
+    "Package JavaScript frontend or full-stack apps as desktop applications.",
   )
-  .version("0.1.0");
+  .version("0.1.0-beta.1");
 
 program
   .command("init")
   .description("Detect project structure and set up desktop configuration")
-  .action(async () => {
+  .option("-y, --yes", "Use defaults and skip interactive prompts")
+  .option("--name <name>", "App display name")
+  .option("--app-id <appId>", "App ID (for example com.example.app)")
+  .option("-f, --force", "Overwrite existing Deskpack files")
+  .action(async (options: InitCommandOptions) => {
     try {
-      await initCommand(process.cwd());
+      await initCommand(process.cwd(), options);
     } catch (error) {
       log.error(error instanceof Error ? error.message : String(error));
       process.exit(1);
@@ -57,7 +61,12 @@ program
   .command("build")
   .description("Build the desktop application for distribution")
   .option("--skip-package", "Bundle only — skip creating the installer")
-  .action(async (options: { skipPackage?: boolean }) => {
+  .option(
+    "--platform <platform>",
+    "Target platform: current, mac, windows, or linux",
+    "current",
+  )
+  .action(async (options: { skipPackage?: boolean; platform?: string }) => {
     try {
       await buildCommand(process.cwd(), options);
     } catch (error) {
@@ -70,7 +79,7 @@ program
 program.action(async () => {
   const fs = await import("node:fs");
   const path = await import("node:path");
-  const configPath = path.join(process.cwd(), "shipdesk.config.json");
+  const configPath = path.join(process.cwd(), "deskpack.config.json");
 
   if (fs.existsSync(configPath)) {
     program.help();

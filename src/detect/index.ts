@@ -15,7 +15,7 @@ import type { ProjectConfig, FrontendInfo, BackendInfo } from "../types.js";
  *
  * @param rootDir  Absolute path to the project root.
  * @returns A `ProjectConfig` describing the detected setup.
- * @throws If no frontend or backend can be identified.
+ * @throws If no frontend can be identified.
  */
 export function detectProject(rootDir: string): ProjectConfig {
   const monorepo = detectMonorepo(rootDir);
@@ -101,17 +101,7 @@ export function detectProject(rootDir: string): ProjectConfig {
         `Detected monorepo: ${monorepo.type}${searched}`,
     );
   }
-  if (!backend) {
-    const searched =
-      backendSearchedDirs.length > 0
-        ? `\nSearched: ${backendSearchedDirs.join(", ")}`
-        : "";
-    throw new Error(
-      `Could not detect a backend server.\n` +
-        `Make sure your project has Express, Hono, Fastify, or Koa as a dependency.\n` +
-        `Detected monorepo: ${monorepo.type}${searched}`,
-    );
-  }
+  backend ??= createFrontendOnlyBackend();
 
   // ---- Detect topology ----------------------------------------------------
   const { topology, evidence } = detectTopology(
@@ -134,5 +124,17 @@ export function detectProject(rootDir: string): ProjectConfig {
     topology,
     topologyEvidence: evidence,
     electron: { window: { width: 1280, height: 860 } },
+  };
+}
+
+function createFrontendOnlyBackend(): BackendInfo {
+  return {
+    framework: "unknown",
+    path: "",
+    entry: "",
+    devCommand: "",
+    devPort: 0,
+    nativeDeps: [],
+    healthCheckPath: "/",
   };
 }

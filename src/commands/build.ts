@@ -5,12 +5,17 @@ import { buildFrontend } from "../build/frontend.js";
 import { bundleBackend } from "../build/backend.js";
 import { copyRuntimeDependencies } from "../build/runtime-deps.js";
 import { packageElectron } from "../build/package.js";
+import {
+  inspectPlatformBuild,
+  normalizeBuildPlatform,
+  platformLabel,
+} from "../build/platform.js";
 import { generateElectronMain } from "../generate/electron-main.js";
 import { loadConfig } from "../config.js";
 import { log } from "../utils/logger.js";
 
 /**
- * `shipdesk build`
+ * `deskpack build`
  *
  * 1. Build the frontend.
  * 2. Bundle the backend with esbuild.
@@ -20,19 +25,64 @@ import { log } from "../utils/logger.js";
  */
 export async function buildCommand(
   rootDir: string,
-  options: { skipPackage?: boolean },
+  options: { skipPackage?: boolean; platform?: string },
 ): Promise<void> {
   log.banner();
   const config = loadConfig(rootDir);
+  const targetPlatform = normalizeBuildPlatform(options.platform);
 
-  const desktopDir = path.join(rootDir, ".shipdesk", "desktop");
+  if (config.topology === "ssr-framework") {
+    throw new Error(
+      "Next.js SSR/server runtime projects are not supported. Use static export (output: \"export\") before building.",
+    );
+  }
+
+  if (config.topology === "unsupported") {
+    throw new Error(
+      "Unsupported topology. Deskpack could not determine a reliable frontend/backend runtime layout.",
+    );
+  }
+
+  const desktopDir = path.join(rootDir, ".deskpack", "desktop");
   const serverDir = path.join(desktopDir, "server");
 
-  if (!fs.existsSync(path.join(desktopDir, "node_modules", "electron"))) {
+  const hasElectron = fs.existsSync(path.join(desktopDir, "node_modules", "electron"));
+  if (!hasElectron && !options.skipPackage) {
     log.error(
-      `Desktop not initialised. Run ${chalk.cyan("npx shipdesk init")} first.`,
+      `Desktop not initialised. Run ${chalk.cyan("npx deskpack init")} first.`,
     );
     process.exit(1);
+  }
+  if (!hasElectron && options.skipPackage) {
+    log.warn("Electron is not installed; continuing because --skip-package was set.");
+  }
+
+  if (!options.skipPackage) {
+    const decision = inspectPlatformBuild(config, targetPlatform);
+
+    log.info(
+      `Packaging target: ${platformLabel(decision.targetPlatform)} ` +
+        `(host: ${platformLabel(decision.hostPlatform)})`,
+    );
+
+    for (const warning of decision.warnings) {
+      log.warn(warning);
+    }
+
+    if (!decision.allowed) {
+      log.blank();
+      log.error("Cannot create this platform build reliably from the current OS.");
+      for (const reason of decision.reasons) {
+        log.step("Reason", reason);
+      }
+      log.blank();
+      log.info(
+        `Build this installer on ${platformLabel(decision.targetPlatform)} instead.`,
+      );
+      throw new Error("Platform build refused by deskpack policy.");
+    }
+
+    log.blank();
   }
 
   // Clean and recreate the server output directory.
@@ -67,8 +117,12 @@ export async function buildCommand(
   log.success("Copied frontend build to server bundle");
 
   // 3. Bundle backend -------------------------------------------------------
-  await bundleBackend(rootDir, config, serverDir);
-  copyRuntimeDependencies(rootDir, config, serverDir);
+  if (config.topology === "frontend-only-static" || config.backend.path === "") {
+    log.success("No backend detected; skipping backend bundle");
+  } else {
+    await bundleBackend(rootDir, config, serverDir);
+    copyRuntimeDependencies(rootDir, config, serverDir);
+  }
 
   // 4. Regenerate Electron main (in case config changed) --------------------
   fs.writeFileSync(
@@ -79,7 +133,7 @@ export async function buildCommand(
   // 5. Package (optional) ---------------------------------------------------
   if (!options.skipPackage) {
     log.blank();
-    await packageElectron(rootDir);
+    await packageElectron(rootDir, targetPlatform);
   }
 
   // --- Summary -------------------------------------------------------------
@@ -87,7 +141,7 @@ export async function buildCommand(
   log.success(chalk.bold("Build complete!"));
 
   if (!options.skipPackage) {
-    const releaseDir = path.join(rootDir, ".shipdesk", "release");
+    const releaseDir = path.join(rootDir, ".deskpack", "release");
     if (fs.existsSync(releaseDir)) {
       log.blank();
       log.info("Output files:");
@@ -102,7 +156,7 @@ export async function buildCommand(
       }
     }
   } else {
-    log.step("Bundled files", `.shipdesk${path.sep}desktop${path.sep}server`);
+    log.step("Bundled files", `.deskpack${path.sep}desktop${path.sep}server`);
     log.dim("  Run without --skip-package to create installers");
   }
 

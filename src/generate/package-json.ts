@@ -1,9 +1,9 @@
-import type { ShipdeskConfig } from "../types.js";
+import type { DeskpackConfig } from "../types.js";
 
 /**
- * Generate a `package.json` for the `.shipdesk/desktop/` Electron project.
+ * Generate a `package.json` for the `.deskpack/desktop/` Electron project.
  */
-export function generateDesktopPackageJson(config: ShipdeskConfig): string {
+export function generateDesktopPackageJson(config: DeskpackConfig): string {
   const safeName = config.name
     .toLowerCase()
     .replace(/[^a-z0-9-]/g, "-")

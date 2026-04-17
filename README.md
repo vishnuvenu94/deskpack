@@ -1,129 +1,154 @@
-# shipdesk
+# deskpack
 
-> Convert any full-stack JavaScript web app into a cross-platform desktop application.
+> Package JavaScript frontend and full-stack Node apps into desktop applications.
 
-**shipdesk** is an open-source CLI tool that takes your existing full-stack JS project (React/Vue/Svelte frontend + Express/Hono/Fastify backend) and wraps it into a native desktop app using Electron — with zero changes to your source code.
+`deskpack` detects your project topology, bundles what is needed for runtime, generates an Electron shell, and packages installers for supported targets.
 
-## Why?
+## Beta Scope
 
-Every existing tool (Nativefier, Pake, ToDesktop) only wraps a **URL** — none of them handle the **backend server**. If you have a full-stack app with an API server, you're on your own.
-
-**shipdesk** fills this gap. It auto-detects your project structure, bundles your backend with esbuild, generates an Electron shell, and packages everything into a `.dmg`, `.exe`, or `.AppImage`.
+- Frontend-only static apps
+- Full-stack Node backends where:
+  - backend serves frontend static files, or
+  - frontend is static and served separately from an API backend
+- Next.js static export (`output: "export"`) only
+- Next.js SSR/server runtime is rejected early
 
 ## Quick Start
 
 ```bash
-# Navigate to your full-stack JS project
-cd my-fullstack-app
-
-# Initialize — auto-detects your project
-npx shipdesk init
-
-# Run as a desktop app in dev mode
-npx shipdesk dev
-
-# Build a distributable installer
-npx shipdesk build
+cd my-js-project
+npx deskpack init
+npx deskpack dev
+npx deskpack build
 ```
 
-## What It Detects
+### Non-interactive init
 
-| Category | Supported |
-|----------|-----------|
-| **Monorepo** | pnpm workspaces, yarn workspaces, npm workspaces, Lerna, Nx, Turborepo |
-| **Frontend** | Vite, Next.js (static export), Create React App, Webpack |
-| **UI Library** | React, Vue, Svelte, Angular, Solid |
-| **Backend** | Express, Hono, Fastify, Koa, NestJS |
-| **Package Manager** | pnpm, yarn, npm |
-
-## How It Works
-
-```
-┌──────────────────────────────────────────┐
-│ Your project                             │
-│  ├── frontend/ (React + Vite)            │
-│  └── backend/  (Hono + Node.js)          │
-└──────────────┬───────────────────────────┘
-               │  npx shipdesk build
-               ▼
-┌──────────────────────────────────────────┐
-│ Electron Desktop App                     │
-│                                          │
-│  Main Process (Node.js)                  │
-│   └── Forks bundled server.cjs           │
-│                                          │
-│  Renderer (Chromium BrowserWindow)       │
-│   └── Built frontend (static files)     │
-│                                          │
-│  Resources/                              │
-│   ├── server.cjs  (esbuild bundle)       │
-│   └── web-dist/   (Vite/Webpack output)  │
-└──────────────────────────────────────────┘
+```bash
+npx deskpack init --yes --name "My App" --app-id com.example.myapp --force
 ```
 
 ## Commands
 
-### `shipdesk init`
+### `deskpack init`
 
-Scans your project, detects the frontend/backend/monorepo setup, and creates the desktop configuration:
+Detects structure and creates:
 
-- `shipdesk.config.json` — detected settings (editable)
-- `.shipdesk/desktop/` — Electron shell files
+- `deskpack.config.json`
+- `.deskpack/desktop/main.cjs`
+- `.deskpack/desktop/electron-builder.yml`
+- `.deskpack/desktop/package.json`
 
-### `shipdesk dev`
+Flags:
 
-Starts your dev servers and opens an Electron window pointing at the Vite dev server. Hot-reload works as normal.
+- `--yes`
+- `--name <name>`
+- `--app-id <app-id>`
+- `--force`
 
-### `shipdesk build`
+### `deskpack dev`
 
-Builds a production distributable:
+- Starts missing dev servers when needed
+- Handles busy configured ports with free-port fallback
+- Regenerates runtime launcher with selected dev ports
+- Launches Electron against your running frontend dev server
 
-1. Builds your frontend (runs your existing build command)
-2. Bundles your backend into a single `server.cjs` via esbuild
-3. Generates the Electron main process
-4. Packages everything with electron-builder
+### `deskpack build`
 
-Output: `.shipdesk/release/` (`.dmg`, `.exe`, `.AppImage`)
+```bash
+npx deskpack build
+npx deskpack build --skip-package
+npx deskpack build --platform mac
+npx deskpack build --platform windows
+npx deskpack build --platform linux
+```
+
+Build flow:
+
+1. Build frontend
+2. Bundle backend (when present)
+3. Copy runtime dependencies (native deps remain external)
+4. Regenerate Electron main process
+5. Package (unless `--skip-package`)
+
+Output directory:
+
+- `.deskpack/release/`
+
+## Supported Detection
+
+### Frontend frameworks
+
+- Vite
+- Next.js (static export only)
+- Create React App
+- Webpack
+- Parcel (basic detection)
+
+### UI libraries
+
+- React
+- Vue
+- Svelte
+- Angular
+- Solid
+
+### Backend frameworks
+
+- Express
+- Hono
+- Fastify
+- Koa
+- NestJS
+
+### Monorepo/workspace support
+
+- pnpm workspaces
+- yarn workspaces
+- npm workspaces
+- Lerna
+- Nx
+- Turborepo (workspace metadata only)
+
+## Platform Policy
+
+`deskpack` uses a conservative packaging policy and fails fast with explicit reasons when cross-building is not reliable.
+
+- Same-OS packaging: allowed
+- Windows cross-build: only when no native runtime deps are detected and Wine is available
+- macOS installers: build on macOS
+- Linux installers: build on Linux
 
 ## Configuration
 
-After `shipdesk init`, a `shipdesk.config.json` is created. You can manually edit it:
+`deskpack.config.json` is generated and can be edited:
 
 ```json
 {
   "name": "My App",
-  "appId": "com.myapp.app",
+  "appId": "com.example.myapp",
   "frontend": {
-    "path": "apps/web",
+    "path": "frontend",
     "framework": "vite",
     "buildCommand": "vite build",
-    "distDir": "apps/web/dist",
-    "devPort": 5173
+    "distDir": "frontend/dist",
+    "devPort": 4173
   },
   "backend": {
-    "path": "apps/api",
-    "framework": "hono",
-    "entry": "apps/api/src/index.ts",
-    "devPort": 3000,
-    "nativeDeps": ["playwright"]
+    "path": "backend",
+    "framework": "express",
+    "entry": "backend/src/index.ts",
+    "devPort": 3300,
+    "healthCheckPath": "/health",
+    "nativeDeps": []
   }
 }
 ```
 
-## Supported Platforms
-
-| Platform | Installer Format |
-|----------|-----------------|
-| macOS | `.dmg`, `.zip` |
-| Windows | `.exe` (NSIS) |
-| Linux | `.AppImage`, `.deb` |
-
-> **Note:** You can only build for your current OS. For cross-platform builds, use CI/CD (e.g., GitHub Actions).
-
 ## Requirements
 
 - Node.js >= 18
-- A full-stack JS project with a frontend and backend
+- JavaScript project with a supported frontend topology
 
 ## License
 

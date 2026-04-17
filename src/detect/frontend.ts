@@ -18,11 +18,14 @@ const BUILD_TOOL_CONFIGS: Record<string, FrontendFramework> = {
   "vite.config.js": "vite",
   "vite.config.mts": "vite",
   "vite.config.mjs": "vite",
+  ".parcelrc": "parcel",
   "next.config.ts": "next",
   "next.config.js": "next",
   "next.config.mjs": "next",
+  "next.config.cjs": "next",
   "webpack.config.ts": "webpack",
   "webpack.config.js": "webpack",
+  "webpack.config.mjs": "webpack",
 };
 
 /**
@@ -68,6 +71,13 @@ export function detectFrontend(
         framework = tool;
         break;
       }
+    }
+
+    if (framework === "unknown") {
+      if ("next" in allDeps) framework = "next";
+      else if ("vite" in allDeps) framework = "vite";
+      else if ("webpack" in allDeps) framework = "webpack";
+      else if ("parcel" in allDeps || "@parcel/core" in allDeps) framework = "parcel";
     }
   }
 
@@ -144,6 +154,8 @@ function determineBuildCommand(
       return "react-scripts build";
     case "webpack":
       return "webpack --mode production";
+    case "parcel":
+      return "parcel build";
     default:
       return "";
   }
@@ -166,6 +178,7 @@ function detectDevPort(
   }
 
   if (framework === "next" || framework === "cra") return 3000;
+  if (framework === "parcel") return 1234;
   return 5173;
 }
 
@@ -182,6 +195,10 @@ function determineDistDir(
       return path.join(base, "out");
     case "cra":
       return path.join(base, "build");
+    case "webpack":
+      return path.join(base, "dist");
+    case "parcel":
+      return path.join(base, "dist");
     default:
       return path.join(base, "dist");
   }

@@ -1,7 +1,7 @@
 import chalk from "chalk";
 import ora, { type Ora } from "ora";
 
-const PREFIX = chalk.hex("#7C3AED").bold("shipdesk");
+const PREFIX = chalk.hex("#0F766E").bold("deskpack");
 
 /**
  * Pretty logger with coloured prefixes, spinners, and structured output.
@@ -50,26 +50,26 @@ export const log = {
     return ora({ text, prefixText: PREFIX }).start();
   },
 
-  /** Print the shipdesk banner. */
+  /** Print the deskpack banner. */
   banner(): void {
     console.log();
     console.log(
-      chalk.hex("#7C3AED").bold("  ┌──────────────────────────────────────┐"),
+      chalk.hex("#0F766E").bold("  ┌──────────────────────────────────────┐"),
     );
     console.log(
-      chalk.hex("#7C3AED").bold("  │") +
-        chalk.white.bold("  ⚡ shipdesk ") +
-        chalk.dim("v0.1.0") +
+      chalk.hex("#0F766E").bold("  │") +
+        chalk.white.bold("  ⚡ deskpack ") +
+        chalk.dim("v0.1.0-beta.1") +
         "               " +
-        chalk.hex("#7C3AED").bold("│"),
+        chalk.hex("#0F766E").bold("│"),
     );
     console.log(
-      chalk.hex("#7C3AED").bold("  │") +
+      chalk.hex("#0F766E").bold("  │") +
         chalk.dim("  Full-stack JS → Desktop App       ") +
-        chalk.hex("#7C3AED").bold("│"),
+        chalk.hex("#0F766E").bold("│"),
     );
     console.log(
-      chalk.hex("#7C3AED").bold("  └──────────────────────────────────────┘"),
+      chalk.hex("#0F766E").bold("  └──────────────────────────────────────┘"),
     );
     console.log();
   },

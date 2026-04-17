@@ -3,7 +3,6 @@ import path from "node:path";
 import type {
   Topology,
   TopologyEvidence,
-  BackendFramework,
   FrontendFramework,
 } from "../types.js";
 
@@ -94,6 +93,16 @@ export function detectTopology(
 
   // If no backend, it's frontend-only
   if (!backendPath || !backendEntry) {
+    if (frontendFramework === "next" && !isNextStaticExport(rootDir, frontendPath)) {
+      evidence.warnings.push(
+        "Next.js detected without static export configuration (output: \"export\").",
+      );
+      return {
+        topology: "ssr-framework",
+        evidence,
+      };
+    }
+
     return {
       topology: "frontend-only-static",
       evidence,
@@ -140,37 +149,32 @@ function classifyTopology(
     return "ssr-framework";
   }
 
-  // If static serving patterns found, backend serves frontend
+  // Next.js support boundary:
+  // - static export (output: "export") => supported
+  // - SSR / server runtime => unsupported
+  if (frontendFramework === "next") {
+    if (!isNextStaticExport(rootDir, frontendPath)) {
+      evidence.warnings.push(
+        "Next.js detected without static export configuration (output: \"export\").",
+      );
+      return "ssr-framework";
+    }
+  }
+
+  // If static serving patterns found, backend serves frontend.
   if (evidence.staticServingPatterns.length > 0) {
     return "backend-serves-frontend";
   }
 
-  // If Next.js without static export, likely SSR
-  if (frontendFramework === "next") {
-    // Check if it's configured for static export
-    const nextConfigPath = path.join(rootDir, frontendPath, "next.config.js");
-    if (fs.existsSync(nextConfigPath)) {
-      const content = fs.readFileSync(nextConfigPath, "utf-8");
-      if (content.includes("output: 'export'") || content.includes('output: "export"')) {
-        return "frontend-static-separate";
-      }
-    }
-    evidence.warnings.push(
-      "Next.js detected without static export configuration. Assuming SSR mode.",
-    );
-    return "ssr-framework";
-  }
-
-  // If frontend dist found but no static serving patterns,
-  // it's a separate frontend (API-only backend)
+  // If frontend dist exists and no static serving patterns, treat as API-only backend
+  // with a separately hosted frontend.
   if (evidence.frontendDistFound) {
     return "frontend-static-separate";
   }
 
-  // If we have a backend but couldn't determine static serving
-  // and frontend dist wasn't found, we need runtime verification
+  // Conservative default for API-only backends where frontend is built separately.
   evidence.warnings.push(
-    "Could not detect static serving patterns. Treating backend as API-only and serving frontend separately.",
+    "No backend static-serving patterns found. Treating this as a separate static frontend + API backend topology.",
   );
   return "frontend-static-separate";
 }
@@ -228,4 +232,36 @@ export function topologyDescription(topology: Topology): string {
     case "unsupported":
       return "Could not determine topology — runtime verification required";
   }
+}
+
+function isNextStaticExport(rootDir: string, frontendPath: string): boolean {
+  const frontendDir = path.join(rootDir, frontendPath);
+  const nextConfigCandidates = [
+    "next.config.js",
+    "next.config.mjs",
+    "next.config.ts",
+    "next.config.cjs",
+  ];
+
+  for (const configName of nextConfigCandidates) {
+    const configPath = path.join(frontendDir, configName);
+    if (!fs.existsSync(configPath)) continue;
+    const content = fs.readFileSync(configPath, "utf-8");
+    if (/output\s*:\s*["']export["']/.test(content)) {
+      return true;
+    }
+  }
+
+  const packageJsonPath = path.join(frontendDir, "package.json");
+  if (fs.existsSync(packageJsonPath)) {
+    const pkg = JSON.parse(fs.readFileSync(packageJsonPath, "utf-8")) as {
+      scripts?: Record<string, string>;
+    };
+    const buildScript = pkg.scripts?.build ?? "";
+    if (/\bnext\s+export\b/.test(buildScript)) {
+      return true;
+    }
+  }
+
+  return false;
 }

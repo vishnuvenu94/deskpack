@@ -1,11 +1,11 @@
 /**
- * shipdesk — public programmatic API.
+ * deskpack — public programmatic API.
  *
- * Use this to integrate shipdesk into your own tooling.
+ * Use this to integrate deskpack into your own tooling.
  *
  * @example
  * ```ts
- * import { detectProject } from "shipdesk";
+ * import { detectProject } from "deskpack";
  * const config = detectProject(process.cwd());
  * console.log(config.frontend.framework); // "vite"
  * ```
@@ -19,7 +19,7 @@ export { devCommand } from "./commands/dev.js";
 export { buildCommand } from "./commands/build.js";
 
 export type {
-  ShipdeskConfig,
+  DeskpackConfig,
   ProjectConfig,
   FrontendInfo,
   BackendInfo,

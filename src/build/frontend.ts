@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import type { ShipdeskConfig } from "../types.js";
+import type { DeskpackConfig } from "../types.js";
 import { execPassthrough } from "../utils/exec.js";
 import { log } from "../utils/logger.js";
 
@@ -10,7 +10,7 @@ import { log } from "../utils/logger.js";
  */
 export async function buildFrontend(
   rootDir: string,
-  config: ShipdeskConfig,
+  config: DeskpackConfig,
 ): Promise<void> {
   const pm = config.monorepo.packageManager;
   let command: string;

@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import esbuild from "esbuild";
-import type { ShipdeskConfig } from "../types.js";
+import type { DeskpackConfig } from "../types.js";
 import { log } from "../utils/logger.js";
 
 /**
@@ -12,7 +12,7 @@ import { log } from "../utils/logger.js";
  */
 export async function bundleBackend(
   rootDir: string,
-  config: ShipdeskConfig,
+  config: DeskpackConfig,
   outDir: string,
 ): Promise<void> {
   const entry = path.resolve(rootDir, config.backend.entry);
@@ -42,9 +42,9 @@ export async function bundleBackend(
     minify: false, // keep readable for debugging
     banner: {
       js: [
-        'import { createRequire as __shipdeskCreateRequire } from "node:module";',
-        "const require = __shipdeskCreateRequire(import.meta.url);",
-        "// Bundled by shipdesk",
+        'import { createRequire as __deskpackCreateRequire } from "node:module";',
+        "const require = __deskpackCreateRequire(import.meta.url);",
+        "// Bundled by deskpack",
       ].join("\n"),
     },
     logLevel: "warning",

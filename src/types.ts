@@ -13,6 +13,9 @@ export type UILibrary = "react" | "vue" | "svelte" | "angular" | "solid" | "unkn
 /** Backend server framework. */
 export type BackendFramework = "express" | "hono" | "fastify" | "koa" | "nestjs" | "http" | "unknown";
 
+/** Package target platform. */
+export type BuildPlatform = "darwin" | "win32" | "linux";
+
 /**
  * Deployment topology — the critical classification that determines
  * how the app is packaged and run in production.
@@ -74,6 +77,8 @@ export interface BackendInfo {
   startCommand?: string;
   /** Working directory for backend commands */
   cwd?: string;
+  /** Preferred HTTP path for readiness probes */
+  healthCheckPath?: string;
 }
 
 /** Full detection result returned by `detectProject`. */
@@ -93,10 +98,10 @@ export interface ProjectConfig {
 }
 
 // ---------------------------------------------------------------------------
-// Persisted config (shipdesk.config.json)
+// Persisted config (deskpack.config.json)
 // ---------------------------------------------------------------------------
 
-export interface ShipdeskConfig {
+export interface DeskpackConfig {
   name: string;
   appId: string;
   version: string;
@@ -115,6 +120,7 @@ export interface ShipdeskConfig {
     nativeDeps: string[];
     startCommand?: string;
     cwd?: string;
+    healthCheckPath?: string;
   };
   monorepo: {
     type: MonorepoType;

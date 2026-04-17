@@ -1,26 +1,39 @@
 import fs from "node:fs";
 import path from "node:path";
 import chalk from "chalk";
-import type { ShipdeskConfig } from "./types.js";
+import type { DeskpackConfig } from "./types.js";
 import { detectTopology } from "./detect/topology.js";
 
 /**
- * Load and parse the `shipdesk.config.json` from the project root.
+ * Load and parse the `deskpack.config.json` from the project root.
  * Exits with a helpful error message if the file does not exist.
  */
-export function loadConfig(rootDir: string): ShipdeskConfig {
-  const configPath = path.join(rootDir, "shipdesk.config.json");
+export function loadConfig(rootDir: string): DeskpackConfig {
+  const configPath = path.join(rootDir, "deskpack.config.json");
 
   if (!fs.existsSync(configPath)) {
     console.error(
-      `${chalk.red("✗")} No shipdesk.config.json found. Run ${chalk.cyan("npx shipdesk init")} first.`,
+      `${chalk.red("✗")} No deskpack.config.json found. Run ${chalk.cyan("npx deskpack init")} first.`,
     );
     process.exit(1);
   }
 
-  const raw = JSON.parse(fs.readFileSync(configPath, "utf-8")) as Partial<ShipdeskConfig>;
+  const raw = JSON.parse(fs.readFileSync(configPath, "utf-8")) as Partial<DeskpackConfig>;
 
-  if (!raw.topology && raw.frontend && raw.backend) {
+  if (!raw.backend) {
+    raw.backend = {
+      path: "",
+      framework: "unknown",
+      entry: "",
+      devPort: 0,
+      nativeDeps: [],
+      healthCheckPath: "/",
+    };
+  }
+
+  raw.backend.healthCheckPath ??= "/";
+
+  if (!raw.topology && raw.frontend) {
     const { topology, evidence } = detectTopology(
       rootDir,
       raw.backend.path,
@@ -42,5 +55,5 @@ export function loadConfig(rootDir: string): ShipdeskConfig {
     warnings: [],
   };
 
-  return raw as ShipdeskConfig;
+  return raw as DeskpackConfig;
 }

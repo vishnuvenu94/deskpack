@@ -1,0 +1,14 @@
+{
+  "name": "backend-serves-frontend",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "build": "node ./scripts/build.mjs"
+  },
+  "dependencies": {
+    "react": "18.3.1",
+    "vite": "5.4.0",
+    "hono": "4.6.0",
+    "@hono/node-server": "1.13.0"
+  }
+}

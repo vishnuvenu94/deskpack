@@ -1,0 +1,11 @@
+{
+  "name": "frontend-api-separate-api",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "node ./src/index.ts"
+  },
+  "dependencies": {
+    "express": "4.21.0"
+  }
+}

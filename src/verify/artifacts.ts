@@ -165,7 +165,7 @@ export function verifyBuildOutput(
 
   // If we have warnings, log them but don't fail
   for (const warning of artifacts.warnings) {
-    console.warn(`[shipdesk] Build verification: ${warning}`);
+    console.warn(`[deskpack] Build verification: ${warning}`);
   }
 
   return null;

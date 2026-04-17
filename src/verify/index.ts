@@ -1,6 +1,6 @@
 import http from "node:http";
 import { ChildProcess, fork } from "child_process";
-import type { ShipdeskConfig } from "../types.js";
+import type { DeskpackConfig } from "../types.js";
 
 export interface ProbeResult {
   /** Whether the probe succeeded */
@@ -70,7 +70,7 @@ export function probeUrl(url: string, timeoutMs = 5000): Promise<ProbeResult> {
  * Returns the spawned process and a cleanup function.
  */
 export async function startBackendForVerification(
-  config: ShipdeskConfig,
+  config: DeskpackConfig,
   serverFilePath: string,
 ): Promise<{
   process: ChildProcess;
@@ -162,10 +162,10 @@ export interface VerificationResult {
  * Verify the runtime behavior of the packaged app.
  *
  * This is the definitive check that determines if the app will work
- * in production. If this fails, shipdesk should not package the app.
+ * in production. If this fails, deskpack should not package the app.
  */
 export async function verifyRuntime(
-  config: ShipdeskConfig,
+  config: DeskpackConfig,
   serverFilePath: string,
   frontendDistPath: string,
 ): Promise<VerificationResult> {

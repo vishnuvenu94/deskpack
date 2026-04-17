@@ -62,17 +62,27 @@ export function detectBackend(
 
   // --- Entry point ---------------------------------------------------------
   const entry = detectEntryPoint(fullPath, searchPath, pkg);
+  const entryAbsolutePath = path.resolve(rootDir, entry);
 
   // --- Port ----------------------------------------------------------------
   const devPort = detectServerPort(fullPath, pkg);
 
   // --- Native dependencies -------------------------------------------------
   const nativeDeps = collectNativeDeps(allDeps);
+  const healthCheckPath = detectHealthCheckPath(fullPath, entryAbsolutePath);
 
   // --- Dev command ---------------------------------------------------------
   const devCommand: string = pkg.scripts?.dev ?? pkg.scripts?.start ?? "";
 
-  return { framework, path: searchPath, entry, devCommand, devPort, nativeDeps };
+  return {
+    framework,
+    path: searchPath,
+    entry,
+    devCommand,
+    devPort,
+    nativeDeps,
+    healthCheckPath,
+  };
 }
 
 /**
@@ -236,4 +246,53 @@ function detectServerPort(
 
 function collectNativeDeps(deps: Record<string, string>): string[] {
   return KNOWN_NATIVE_DEPS.filter((dep) => dep in deps);
+}
+
+function detectHealthCheckPath(
+  packageDir: string,
+  entryAbsolutePath: string,
+): string {
+  const healthPathRegexes: RegExp[] = [
+    /\.(?:get|post|all|use)\s*\(\s*["'`](\/(?:healthz?|ready|status)[^"'`]*)["'`]/,
+    /app\s*\.\s*get\s*\(\s*["'`](\/[^"'`]*health[^"'`]*)["'`]/,
+    /fastify\s*\.\s*get\s*\(\s*["'`](\/[^"'`]*health[^"'`]*)["'`]/,
+    /router\s*\.\s*get\s*\(\s*["'`](\/[^"'`]*health[^"'`]*)["'`]/,
+  ];
+
+  const candidateFiles = new Set<string>([
+    entryAbsolutePath,
+    path.join(packageDir, "src/index.ts"),
+    path.join(packageDir, "src/index.js"),
+    path.join(packageDir, "src/server.ts"),
+    path.join(packageDir, "src/server.js"),
+    path.join(packageDir, "index.ts"),
+    path.join(packageDir, "index.js"),
+    path.join(packageDir, "server.ts"),
+    path.join(packageDir, "server.js"),
+  ]);
+
+  for (const filePath of candidateFiles) {
+    if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) continue;
+    const content = fs.readFileSync(filePath, "utf-8");
+
+    for (const regex of healthPathRegexes) {
+      const match = content.match(regex);
+      if (match?.[1]) {
+        const normalized = normalizeHealthPath(match[1]);
+        if (normalized) return normalized;
+      }
+    }
+  }
+
+  return "/";
+}
+
+function normalizeHealthPath(value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed.startsWith("/")) return null;
+
+  const withoutQuery = trimmed.split("?")[0].split("#")[0].trim();
+  if (withoutQuery.length === 0) return null;
+
+  return withoutQuery;
 }

@@ -1,33 +1,49 @@
 {
-  "name": "shipdesk",
-  "version": "0.1.0",
-  "description": "Convert any full-stack JavaScript web app into a cross-platform desktop application",
+  "name": "deskpack",
+  "version": "0.1.0-beta.1",
+  "description": "Package JavaScript frontend and full-stack Node apps into desktop applications",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "bin": {
-    "shipdesk": "./dist/cli.js"
+    "deskpack": "./dist/cli.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md",
+    "CONTRIBUTING.md",
+    "CODE_OF_CONDUCT.md",
+    "SECURITY.md"
   ],
   "scripts": {
-    "build": "tsc",
+    "build": "node ./scripts/clean-dist.mjs && tsc",
     "dev": "tsc --watch",
     "prepublishOnly": "npm run build",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "test": "npm run build && node --test \"test/**/*.test.mjs\"",
+    "check:naming": "node ./scripts/check-legacy-name.mjs",
+    "check:release": "npm run check:naming && npm run lint && npm run test && npm pack --dry-run --cache ./.npm-cache && node ./scripts/validate-bin.mjs"
   },
   "keywords": [
+    "deskpack",
     "electron",
     "desktop",
     "cli",
-    "fullstack",
-    "converter",
+    "full-stack",
+    "frontend",
+    "backend",
     "cross-platform",
-    "web-app",
-    "packaging"
+    "javascript",
+    "nodejs",
+    "packaging",
+    "nextjs",
+    "vite",
+    "hono",
+    "express"
   ],
-  "author": "",
+  "author": "Deskpack contributors",
   "license": "MIT",
   "engines": {
     "node": ">=18.0.0"
@@ -47,6 +63,10 @@
   },
   "repository": {
     "type": "git",
-    "url": ""
+    "url": "https://github.com/deskpack/deskpack.git"
+  },
+  "homepage": "https://github.com/deskpack/deskpack#readme",
+  "bugs": {
+    "url": "https://github.com/deskpack/deskpack/issues"
   }
 }

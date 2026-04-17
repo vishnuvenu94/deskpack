@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { createRequire } from "node:module";
 import fg from "fast-glob";
-import type { ShipdeskConfig } from "../types.js";
+import type { DeskpackConfig } from "../types.js";
 import { log } from "../utils/logger.js";
 
 interface ResolvedPackage {
@@ -19,7 +19,7 @@ interface ResolvedPackage {
  */
 export function copyRuntimeDependencies(
   rootDir: string,
-  config: ShipdeskConfig,
+  config: DeskpackConfig,
   serverDir: string,
 ): void {
   if (config.backend.nativeDeps.length === 0) return;
@@ -61,9 +61,9 @@ function findPackageDirs(rootDir: string): string[] {
       "**/dist/**",
       "**/build/**",
       "**/.next/**",
-      "**/.shipdesk/**",
-      "**/shipdesk/**",
-      "**/shipdesk-*/**",
+      "**/.deskpack/**",
+      "**/deskpack/**",
+      "**/deskpack-*/**",
     ],
   });
 
