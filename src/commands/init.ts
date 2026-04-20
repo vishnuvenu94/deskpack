@@ -166,6 +166,7 @@ export async function initCommand(
       startCommand: project.backend.startCommand,
       cwd: project.backend.cwd,
       healthCheckPath: project.backend.healthCheckPath ?? "/",
+      ...(project.backend.apiPrefixes ? { apiPrefixes: project.backend.apiPrefixes } : {}),
     },
     monorepo: {
       type: project.monorepo.type,

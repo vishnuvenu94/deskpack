@@ -182,6 +182,67 @@ function detectDevPort(
   return 5173;
 }
 
+/**
+ * Detect API proxy prefixes from Vite config (and other dev proxy configs).
+ * Returns an array of URL path prefixes like ["/api"] that the frontend
+ * proxies to the backend during development.
+ */
+export function detectApiPrefixes(rootDir: string, searchPath: string): string[] {
+  const fullPath = path.resolve(rootDir, searchPath);
+  const prefixes = new Set<string>();
+
+  const viteConfigCandidates = [
+    "vite.config.ts",
+    "vite.config.js",
+    "vite.config.mts",
+    "vite.config.mjs",
+  ];
+
+  for (const configName of viteConfigCandidates) {
+    const configPath = path.join(fullPath, configName);
+    if (!fs.existsSync(configPath)) continue;
+
+    const content = fs.readFileSync(configPath, "utf-8");
+    const proxyBlock = content;
+
+    const proxyKeyRegex = /["']\s*(\/[a-zA-Z][a-zA-Z0-9_/-]*)\s*["']\s*:/g;
+    let insideProxy = false;
+    let braceDepth = 0;
+
+    for (const line of proxyBlock.split("\n")) {
+      const trimmed = line.trim();
+
+      if (/\bproxy\s*:/.test(trimmed)) {
+        insideProxy = true;
+      }
+
+      if (insideProxy) {
+        braceDepth += (trimmed.match(/\{/g) || []).length;
+        braceDepth -= (trimmed.match(/\}/g) || []).length;
+
+        const match = proxyKeyRegex.exec(trimmed);
+        if (match) {
+          prefixes.add(match[1]);
+        }
+
+        if (braceDepth <= 0 && /\}/.test(trimmed)) {
+          insideProxy = false;
+          braceDepth = 0;
+          break;
+        }
+      }
+    }
+
+    if (prefixes.size > 0) break;
+  }
+
+  if (prefixes.size === 0) {
+    return ["/api"];
+  }
+
+  return [...prefixes];
+}
+
 function determineDistDir(
   searchPath: string,
   framework: FrontendFramework,

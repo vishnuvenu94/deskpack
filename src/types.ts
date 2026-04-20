@@ -79,6 +79,8 @@ export interface BackendInfo {
   cwd?: string;
   /** Preferred HTTP path for readiness probes */
   healthCheckPath?: string;
+  /** URL prefixes that should be proxied to the backend in desktop mode (e.g. ["/api"]) */
+  apiPrefixes?: string[];
 }
 
 /** Full detection result returned by `detectProject`. */
@@ -112,15 +114,16 @@ export interface DeskpackConfig {
     distDir: string;
     devPort: number;
   };
-  backend: {
-    path: string;
+backend: {
     framework: BackendFramework;
+    path: string;
     entry: string;
     devPort: number;
     nativeDeps: string[];
     startCommand?: string;
     cwd?: string;
     healthCheckPath?: string;
+    apiPrefixes?: string[];
   };
   monorepo: {
     type: MonorepoType;

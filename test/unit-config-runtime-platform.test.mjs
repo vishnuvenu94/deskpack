@@ -95,3 +95,42 @@ test("platform policy blocks windows cross-build when native deps exist", () => 
   assert.equal(decision.allowed, false);
   assert.match(decision.reasons.join("\n"), /native\/runtime dependencies/i);
 });
+
+test("generated electron runtime includes API proxy for frontend-static-separate topology", () => {
+  const config = sampleConfig();
+  config.topology = "frontend-static-separate";
+  config.backend = {
+    path: ".",
+    framework: "express",
+    entry: "server.js",
+    devPort: 3000,
+    nativeDeps: [],
+    healthCheckPath: "/health",
+    apiPrefixes: ["/api"],
+  };
+  const runtime = generateElectronMain(config);
+  assert.match(runtime, /API_PROXY_PREFIXES/);
+  assert.match(runtime, /proxyApiRequest/);
+  assert.match(runtime, /startBundledBackend\(PREFERRED_API_PORT\)/);
+  assert.match(runtime, /startStaticServer\(PREFERRED_FRONTEND_PORT, backendPort\)/);
+});
+
+test("frontend-only-static topology has no API proxy when backendPort is 0", () => {
+  const config = sampleConfig();
+  config.topology = "frontend-only-static";
+  const runtime = generateElectronMain(config);
+  assert.match(runtime, /startStaticServer\(PREFERRED_FRONTEND_PORT, 0\)/);
+});
+
+test("loadConfig defaults apiPrefixes to [\"/api\"] when missing", () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "deskpack-config-test-"));
+  const configPath = path.join(tmpDir, "deskpack.config.json");
+
+  const config = sampleConfig();
+  delete config.backend.healthCheckPath;
+  delete config.backend.apiPrefixes;
+  fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+
+  const loaded = loadConfig(tmpDir);
+  assert.deepEqual(loaded.backend.apiPrefixes, ["/api"]);
+});

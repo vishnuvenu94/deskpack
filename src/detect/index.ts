@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { detectMonorepo } from "./monorepo.js";
-import { detectFrontend, isFrontendPackage } from "./frontend.js";
+import { detectFrontend, isFrontendPackage, detectApiPrefixes } from "./frontend.js";
 import {
   detectBackend,
   isBackendPackage,
@@ -102,6 +102,11 @@ export function detectProject(rootDir: string): ProjectConfig {
     );
   }
   backend ??= createFrontendOnlyBackend();
+
+  // ---- Detect API prefixes for proxy ---------------------------------------
+  if (backend.path.length > 0 && frontend) {
+    backend.apiPrefixes = detectApiPrefixes(rootDir, frontend.path);
+  }
 
   // ---- Detect topology ----------------------------------------------------
   const { topology, evidence } = detectTopology(

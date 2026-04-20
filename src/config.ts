@@ -33,6 +33,10 @@ export function loadConfig(rootDir: string): DeskpackConfig {
 
   raw.backend.healthCheckPath ??= "/";
 
+  if (!raw.backend.apiPrefixes || raw.backend.apiPrefixes.length === 0) {
+    raw.backend.apiPrefixes = ["/api"];
+  }
+
   if (!raw.topology && raw.frontend) {
     const { topology, evidence } = detectTopology(
       rootDir,

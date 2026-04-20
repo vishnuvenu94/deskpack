@@ -27,6 +27,7 @@ const UNSUPPORTED_TOPOLOGY_MESSAGE = ${JSON.stringify(unsupportedMessage)};
 const PREFERRED_API_PORT = ${config.backend.devPort};
 const PREFERRED_FRONTEND_PORT = ${config.frontend.devPort};
 const BACKEND_HEALTH_PATH = ${JSON.stringify(backendHealthPath)};
+const API_PROXY_PREFIXES = ${JSON.stringify(config.backend.apiPrefixes ?? ["/api"])};
 const WINDOW_TITLE = ${JSON.stringify(title)};
 const WINDOW_WIDTH = ${config.electron.window.width};
 const WINDOW_HEIGHT = ${config.electron.window.height};
@@ -331,7 +332,36 @@ function serveStaticRequest(staticRoot, request, response) {
   response.end("Not found");
 }
 
-async function startStaticServer(preferredPort) {
+function proxyApiRequest(request, response, backendPort) {
+  const options = {
+    hostname: "127.0.0.1",
+    port: backendPort,
+    path: request.url,
+    method: request.method,
+    headers: { ...request.headers, "X-Forwarded-For": "127.0.0.1" },
+  };
+
+  const proxyRequest = http.request(options, (proxyResponse) => {
+    if (!proxyResponse.statusCode) {
+      response.writeHead(502, { "Content-Type": "text/plain; charset=utf-8" });
+      response.end("Bad Gateway");
+      return;
+    }
+    response.writeHead(proxyResponse.statusCode, proxyResponse.headers);
+    proxyResponse.pipe(response);
+  });
+
+  proxyRequest.on("error", (error) => {
+    if (!response.headersSent) {
+      response.writeHead(502, { "Content-Type": "text/plain; charset=utf-8" });
+      response.end("Proxy error: " + error.message);
+    }
+  });
+
+  request.pipe(proxyRequest);
+}
+
+async function startStaticServer(preferredPort, backendPort) {
   const staticRoot = path.join(process.resourcesPath, "server", "web-dist");
   const entryFile = path.join(staticRoot, "index.html");
   if (!fs.existsSync(entryFile)) {
@@ -341,6 +371,18 @@ async function startStaticServer(preferredPort) {
   const port = await resolvePort(preferredPort, "frontend");
   await new Promise((resolve, reject) => {
     staticServer = http.createServer((request, response) => {
+      if (backendPort > 0) {
+        let pathname = "/";
+        try {
+          pathname = new URL(request.url || "/", "http://127.0.0.1").pathname;
+        } catch {}
+
+        if (API_PROXY_PREFIXES.some((prefix) => pathname.startsWith(prefix))) {
+          proxyApiRequest(request, response, backendPort);
+          return;
+        }
+      }
+
       serveStaticRequest(staticRoot, request, response);
     });
 
@@ -479,8 +521,8 @@ async function resolveLoadUrl() {
       return "http://127.0.0.1:" + PREFERRED_FRONTEND_PORT;
     }
 
-    const frontendPort = await startStaticServer(PREFERRED_FRONTEND_PORT);
-    await startBundledBackend(PREFERRED_API_PORT);
+    const backendPort = await startBundledBackend(PREFERRED_API_PORT);
+    const frontendPort = await startStaticServer(PREFERRED_FRONTEND_PORT, backendPort);
     return "http://127.0.0.1:" + frontendPort;
   }
 
@@ -495,7 +537,7 @@ async function resolveLoadUrl() {
       return "http://127.0.0.1:" + PREFERRED_FRONTEND_PORT;
     }
 
-    const frontendPort = await startStaticServer(PREFERRED_FRONTEND_PORT);
+    const frontendPort = await startStaticServer(PREFERRED_FRONTEND_PORT, 0);
     return "http://127.0.0.1:" + frontendPort;
   }
 
