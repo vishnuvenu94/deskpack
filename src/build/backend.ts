@@ -24,6 +24,20 @@ export async function bundleBackend(
 
   const external = [...new Set(config.backend.nativeDeps)];
 
+  // NestJS core lazily requires optional packages at runtime.
+  // Mark them as external so esbuild doesn't fail when they aren't installed.
+  if (config.backend.framework === "nestjs") {
+    const nestjsOptional = [
+      "@nestjs/microservices",
+      "@nestjs/microservices/microservices-module",
+      "@nestjs/websockets",
+      "@nestjs/websockets/socket-module",
+    ];
+    for (const dep of nestjsOptional) {
+      if (!external.includes(dep)) external.push(dep);
+    }
+  }
+
   log.step("Bundling backend", `${config.backend.entry} → server.mjs`);
 
   if (external.length > 0) {
