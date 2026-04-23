@@ -23,6 +23,7 @@ const BUILD_TOOL_CONFIGS: Record<string, FrontendFramework> = {
   "next.config.js": "next",
   "next.config.mjs": "next",
   "next.config.cjs": "next",
+  "angular.json": "angular",
   "webpack.config.ts": "webpack",
   "webpack.config.js": "webpack",
   "webpack.config.mjs": "webpack",
@@ -58,7 +59,7 @@ export function detectFrontend(
     }
   }
 
-  if (uiLibrary === "unknown" && !("react-scripts" in allDeps)) return null;
+  if (uiLibrary === "unknown" && !("react-scripts" in allDeps) && !("@angular/cli" in allDeps)) return null;
 
   // --- Build tool ----------------------------------------------------------
   let framework: FrontendFramework = "unknown";
@@ -75,6 +76,7 @@ export function detectFrontend(
 
     if (framework === "unknown") {
       if ("next" in allDeps) framework = "next";
+      else if ("@angular/cli" in allDeps) framework = "angular";
       else if ("vite" in allDeps) framework = "vite";
       else if ("webpack" in allDeps) framework = "webpack";
       else if ("parcel" in allDeps || "@parcel/core" in allDeps) framework = "parcel";
@@ -129,6 +131,7 @@ export function isFrontendPackage(
     "@vitejs/plugin-react",
     "@vitejs/plugin-vue",
     "@sveltejs/vite-plugin-svelte",
+    "@angular/cli",
   ];
 
   return buildPluginIndicators.some((d) => d in allDeps);
@@ -152,6 +155,8 @@ function determineBuildCommand(
       return "next build";
     case "cra":
       return "react-scripts build";
+    case "angular":
+      return "ng build";
     case "webpack":
       return "webpack --mode production";
     case "parcel":
@@ -177,6 +182,7 @@ function detectDevPort(
     return 5173;
   }
 
+  if (framework === "angular") return 4200;
   if (framework === "next" || framework === "cra") return 3000;
   if (framework === "parcel") return 1234;
   return 5173;
@@ -256,6 +262,8 @@ function determineDistDir(
       return path.join(base, "out");
     case "cra":
       return path.join(base, "build");
+    case "angular":
+      return detectAngularDistDir(base);
     case "webpack":
       return path.join(base, "dist");
     case "parcel":
@@ -263,4 +271,48 @@ function determineDistDir(
     default:
       return path.join(base, "dist");
   }
+}
+
+/**
+ * Read angular.json to determine the correct output directory.
+ * Angular 17+ defaults to `dist/<project-name>/browser`.
+ * Falls back to `dist/<project-name>` or `dist`.
+ */
+function detectAngularDistDir(base: string): string {
+  const angularJsonPath = path.resolve(base || ".", "angular.json");
+
+  if (fs.existsSync(angularJsonPath)) {
+    try {
+      const angularJson = JSON.parse(fs.readFileSync(angularJsonPath, "utf-8"));
+      const defaultProject: string | undefined = angularJson.defaultProject;
+      const projects = angularJson.projects as Record<string, Record<string, unknown>> | undefined;
+
+      if (projects) {
+        // Use the default project or the first project in the config
+        const projectName = defaultProject ?? Object.keys(projects)[0];
+        const project = projects[projectName];
+
+        if (project) {
+          // Check architect.build.options.outputPath
+          const architect = project.architect as Record<string, Record<string, unknown>> | undefined;
+          const buildOptions = architect?.build?.options as Record<string, unknown> | undefined;
+          const outputPath = buildOptions?.outputPath as string | undefined;
+
+          if (outputPath) {
+            // Angular 17+ may output to dist/<name>/browser
+            const browserDir = path.join(base, outputPath, "browser");
+            // Return the outputPath as-is — during build we'll check if /browser exists
+            return path.join(base, outputPath);
+          }
+
+          // Fallback: dist/<project-name>
+          return path.join(base, "dist", projectName);
+        }
+      }
+    } catch {
+      // If parsing fails, fall through to default
+    }
+  }
+
+  return path.join(base, "dist");
 }

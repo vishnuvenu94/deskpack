@@ -5,7 +5,7 @@ export type MonorepoType = "pnpm" | "yarn" | "npm" | "lerna" | "nx" | "turbo" | 
 export type PackageManager = "pnpm" | "yarn" | "npm";
 
 /** Frontend build tool / meta-framework. */
-export type FrontendFramework = "vite" | "next" | "cra" | "webpack" | "parcel" | "unknown";
+export type FrontendFramework = "vite" | "next" | "cra" | "angular" | "webpack" | "parcel" | "unknown";
 
 /** UI library / framework. */
 export type UILibrary = "react" | "vue" | "svelte" | "angular" | "solid" | "unknown";

@@ -98,7 +98,22 @@ export async function buildCommand(
   await buildFrontend(rootDir, config);
 
   // 2. Copy built frontend to server bundle ---------------------------------
-  const frontendDistPath = path.resolve(rootDir, config.frontend.distDir);
+  let frontendDistPath = path.resolve(rootDir, config.frontend.distDir);
+
+  // Angular 17+ places static output inside a `browser` subdirectory.
+  // If the configured distDir doesn't contain index.html at its root,
+  // check for a browser/ subdirectory that does.
+  if (!fs.existsSync(path.join(frontendDistPath, "index.html"))) {
+    const browserSubdir = path.join(frontendDistPath, "browser");
+    if (
+      fs.existsSync(browserSubdir) &&
+      fs.existsSync(path.join(browserSubdir, "index.html"))
+    ) {
+      log.info("Resolved Angular browser output directory");
+      frontendDistPath = browserSubdir;
+    }
+  }
+
   if (!fs.existsSync(frontendDistPath)) {
     throw new Error(
       `Frontend dist not found at ${frontendDistPath}. Did the build succeed?`,

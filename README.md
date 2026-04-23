@@ -81,6 +81,7 @@ Output directory:
 
 - Vite
 - Next.js (static export only)
+- Angular CLI
 - Create React App
 - Webpack
 - Parcel (basic detection)
