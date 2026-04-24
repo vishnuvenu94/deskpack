@@ -61,7 +61,11 @@ export async function bundleBackend(
     banner: {
       js: [
         'import { createRequire as __deskpackCreateRequire } from "node:module";',
+        'import { fileURLToPath as __deskpackFileURLToPath } from "node:url";',
+        'import { dirname as __deskpackDirname } from "node:path";',
         "const require = __deskpackCreateRequire(import.meta.url);",
+        "var __filename = __deskpackFileURLToPath(import.meta.url);",
+        "var __dirname = __deskpackDirname(__filename);",
         "// Bundled by deskpack",
       ].join("\n"),
     },

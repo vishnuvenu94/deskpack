@@ -93,7 +93,7 @@ export function detectFrontend(
   const devCommand: string = pkg.scripts?.dev ?? pkg.scripts?.start ?? "";
 
   // --- Dist directory ------------------------------------------------------
-  const distDir = determineDistDir(searchPath, framework);
+  const distDir = determineDistDir(rootDir, searchPath, framework);
 
   return {
     framework,
@@ -250,6 +250,7 @@ export function detectApiPrefixes(rootDir: string, searchPath: string): string[]
 }
 
 function determineDistDir(
+  rootDir: string,
   searchPath: string,
   framework: FrontendFramework,
 ): string {
@@ -257,7 +258,7 @@ function determineDistDir(
 
   switch (framework) {
     case "vite":
-      return path.join(base, "dist");
+      return detectViteDistDir(rootDir, searchPath, base);
     case "next":
       return path.join(base, "out");
     case "cra":
@@ -271,6 +272,46 @@ function determineDistDir(
     default:
       return path.join(base, "dist");
   }
+}
+
+/**
+ * Read the Vite config to determine the actual output directory.
+ * Many projects set a custom `outDir` (e.g., `'../dist'` to output
+ * to the project root rather than the frontend subdirectory).
+ */
+function detectViteDistDir(rootDir: string, searchPath: string, base: string): string {
+  const fullPath = path.resolve(rootDir, searchPath);
+  const viteConfigNames = [
+    "vite.config.ts",
+    "vite.config.js",
+    "vite.config.mts",
+    "vite.config.mjs",
+  ];
+
+  for (const configName of viteConfigNames) {
+    const configPath = path.join(fullPath, configName);
+    if (!fs.existsSync(configPath)) continue;
+
+    try {
+      const content = fs.readFileSync(configPath, "utf-8");
+      // Match outDir in build config: outDir: '...', outDir: "...", or outDir: `...`
+      const match = content.match(/outDir\s*:\s*['"`]([^'"`]+)['"`]/);
+      if (match) {
+        const outDir = match[1];
+        // Resolve relative to the frontend package directory, then make relative to rootDir
+        const resolved = path.resolve(fullPath, outDir);
+        const relativeToRoot = path.relative(rootDir, resolved);
+        // Ensure it stays within the project
+        if (!relativeToRoot.startsWith("..")) {
+          return relativeToRoot;
+        }
+      }
+    } catch {
+      // If parsing fails, fall through to default
+    }
+  }
+
+  return path.join(base, "dist");
 }
 
 /**
