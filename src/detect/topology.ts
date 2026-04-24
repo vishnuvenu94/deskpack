@@ -56,7 +56,6 @@ const SSR_PATTERNS = [
   /getServerSideProps/,
   /getStaticProps/,
   /\.page\.tsx?/,
-  /AppRouter/,
 
   // SSR-specific patterns
   /renderToString/,
