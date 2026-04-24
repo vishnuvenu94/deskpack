@@ -115,6 +115,25 @@ test("generated electron runtime includes API proxy for frontend-static-separate
   assert.match(runtime, /startStaticServer\(PREFERRED_FRONTEND_PORT, backendPort\)/);
 });
 
+test("generated electron runtime verifies backend-served frontend routes", () => {
+  const config = sampleConfig();
+  config.topology = "backend-serves-frontend";
+  config.backend = {
+    path: ".",
+    framework: "express",
+    entry: "src/server.js",
+    devPort: 3000,
+    nativeDeps: [],
+    healthCheckPath: "/health",
+    apiPrefixes: ["/api"],
+  };
+
+  const runtime = generateElectronMain(config);
+  assert.match(runtime, /ensureBackendServesFrontend/);
+  assert.match(runtime, /await ensureBackendServesFrontend\(backendPort\)/);
+  assert.match(runtime, /did not serve frontend routes/);
+});
+
 test("generated electron runtime requires the configured backend port", () => {
   const config = sampleConfig();
   config.topology = "frontend-static-separate";

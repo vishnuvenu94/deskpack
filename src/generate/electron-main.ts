@@ -279,6 +279,38 @@ async function waitForServerReady({
   );
 }
 
+async function ensureBackendServesFrontend(port, timeoutMs = 5000) {
+  const probePaths = ["/", "/index.html"];
+  const startedAt = Date.now();
+
+  while (Date.now() - startedAt <= timeoutMs) {
+    for (const probePath of probePaths) {
+      const probe = await probeHttp(port, probePath);
+      if (probe.statusCode >= 200 && probe.statusCode < 400) {
+        logInfo(
+          "Backend frontend route ready on port " +
+            port +
+            " (probe " +
+            probePath +
+            ", status " +
+            probe.statusCode +
+            ").",
+        );
+        return;
+      }
+    }
+
+    await sleep(250);
+  }
+
+  throw new Error(
+    "Backend started on port " +
+      port +
+      " but did not serve frontend routes. Tried: " +
+      probePaths.join(", "),
+  );
+}
+
 function resolveStaticPath(staticRoot, requestPath) {
   const normalizedUrlPath = path.posix.normalize(requestPath.replace(/\\\\/g, "/"));
   const relativePath = normalizedUrlPath.startsWith("/")
@@ -527,6 +559,7 @@ async function resolveLoadUrl() {
     }
 
     const backendPort = await startBundledBackend(PREFERRED_API_PORT);
+    await ensureBackendServesFrontend(backendPort);
     return "http://127.0.0.1:" + backendPort;
   }
 
