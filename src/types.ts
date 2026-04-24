@@ -81,6 +81,13 @@ export interface BackendInfo {
   healthCheckPath?: string;
   /** URL prefixes that should be proxied to the backend in desktop mode (e.g. ["/api"]) */
   apiPrefixes?: string[];
+  /**
+   * When set, the desktop proxy strips this prefix before forwarding to the
+   * backend. Format is a simple string like "/api" (the leading portion to
+   * remove). This mirrors Vite dev-proxy `rewrite` behaviour so the same
+   * backend routes work in both dev and the packaged desktop app.
+   */
+  proxyRewrite?: string;
 }
 
 /** Full detection result returned by `detectProject`. */
@@ -124,6 +131,7 @@ backend: {
     cwd?: string;
     healthCheckPath?: string;
     apiPrefixes?: string[];
+    proxyRewrite?: string;
   };
   monorepo: {
     type: MonorepoType;

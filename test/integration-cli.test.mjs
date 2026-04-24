@@ -49,6 +49,29 @@ test("deskpack init captures hardcoded Nest backend port and health route", () =
   assert.equal(config.backend.healthCheckPath, "/health");
 });
 
+test("deskpack init writes proxyRewrite for npm workspace with Vite rewrite", () => {
+  const projectDir = copyFixtureToTemp("monorepo-npm");
+
+  const result = runCli(["init", "--yes", "--force"], projectDir, {
+    DESKPACK_SKIP_ELECTRON_INSTALL: "1",
+  });
+
+  assert.equal(result.status, 0, commandOutput(result));
+
+  const config = JSON.parse(
+    fs.readFileSync(path.join(projectDir, "deskpack.config.json"), "utf-8"),
+  );
+  assert.deepStrictEqual(config.backend.apiPrefixes, ["/api"]);
+  assert.equal(config.backend.proxyRewrite, "/api");
+
+  const mainCjs = fs.readFileSync(
+    path.join(projectDir, ".deskpack", "desktop", "main.cjs"),
+    "utf-8",
+  );
+  assert.match(mainCjs, /PROXY_REWRITE = "\/api"/);
+  assert.match(mainCjs, /function applyProxyRewrite/);
+});
+
 test("deskpack init refuses Next SSR/server runtime projects early", () => {
   const projectDir = copyFixtureToTemp("next-ssr-unsupported");
 

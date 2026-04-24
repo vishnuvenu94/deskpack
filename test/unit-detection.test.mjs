@@ -42,6 +42,12 @@ test("detects monorepo workspace frontend/backend", () => {
   assert.equal(project.backend.path, "apps/api");
 });
 
+test("detects monorepo Vite proxy rewrite", () => {
+  const project = detectProject(fixturePath("monorepo-npm"));
+  assert.deepStrictEqual(project.backend.apiPrefixes, ["/api"]);
+  assert.equal(project.backend.proxyRewrite, "/api");
+});
+
 test("detects native backend dependencies", () => {
   const project = detectProject(fixturePath("native-dependency"));
   assert.ok(project.backend.nativeDeps.includes("better-sqlite3"));

@@ -188,14 +188,21 @@ function detectDevPort(
   return 5173;
 }
 
+export interface ApiProxyConfig {
+  prefixes: string[];
+  proxyRewrite?: string;
+}
+
 /**
  * Detect API proxy prefixes from Vite config (and other dev proxy configs).
- * Returns an array of URL path prefixes like ["/api"] that the frontend
- * proxies to the backend during development.
+ * Returns the URL path prefixes like ["/api"] that the frontend proxies to
+ * the backend during development, plus an optional `proxyRewrite` string
+ * that the desktop proxy should apply to mirror the dev server behaviour.
  */
-export function detectApiPrefixes(rootDir: string, searchPath: string): string[] {
+export function detectApiPrefixes(rootDir: string, searchPath: string): ApiProxyConfig {
   const fullPath = path.resolve(rootDir, searchPath);
   const prefixes = new Set<string>();
+  let proxyRewrite: string | undefined;
 
   const viteConfigCandidates = [
     "vite.config.ts",
@@ -239,14 +246,26 @@ export function detectApiPrefixes(rootDir: string, searchPath: string): string[]
       }
     }
 
-    if (prefixes.size > 0) break;
+    if (prefixes.size > 0) {
+      // Detect rewrite patterns like: rewrite: (path) => path.replace(/^\/api/, '')
+      for (const prefix of prefixes) {
+        const noLeadingSlash = prefix.slice(1);
+        const pattern1 = `replace(/^\\/${noLeadingSlash}`;
+        const pattern2 = `replace(/\\/${noLeadingSlash}`;
+        if (content.includes(pattern1) || content.includes(pattern2)) {
+          proxyRewrite = prefix;
+          break;
+        }
+      }
+      break;
+    }
   }
 
   if (prefixes.size === 0) {
-    return ["/api"];
+    return { prefixes: ["/api"] };
   }
 
-  return [...prefixes];
+  return { prefixes: [...prefixes], proxyRewrite };
 }
 
 function determineDistDir(

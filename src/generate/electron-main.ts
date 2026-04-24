@@ -28,6 +28,7 @@ const PREFERRED_API_PORT = ${config.backend.devPort};
 const PREFERRED_FRONTEND_PORT = ${config.frontend.devPort};
 const BACKEND_HEALTH_PATH = ${JSON.stringify(backendHealthPath)};
 const API_PROXY_PREFIXES = ${JSON.stringify(config.backend.apiPrefixes ?? ["/api"])};
+const PROXY_REWRITE = ${JSON.stringify(config.backend.proxyRewrite ?? null)};
 const WINDOW_TITLE = ${JSON.stringify(title)};
 const WINDOW_WIDTH = ${config.electron.window.width};
 const WINDOW_HEIGHT = ${config.electron.window.height};
@@ -383,11 +384,20 @@ function serveStaticRequest(staticRoot, request, response) {
   response.end("Not found");
 }
 
+function applyProxyRewrite(urlPath) {
+  if (!PROXY_REWRITE || !urlPath) return urlPath;
+  if (urlPath.startsWith(PROXY_REWRITE)) {
+    return urlPath.slice(PROXY_REWRITE.length) || "/";
+  }
+  return urlPath;
+}
+
 function proxyApiRequest(request, response, backendPort) {
+  const proxiedPath = applyProxyRewrite(request.url);
   const options = {
     hostname: "127.0.0.1",
     port: backendPort,
-    path: request.url,
+    path: proxiedPath,
     method: request.method,
     headers: { ...request.headers, "X-Forwarded-For": "127.0.0.1" },
   };
