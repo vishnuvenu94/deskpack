@@ -84,6 +84,25 @@ test("deskpack init refuses Next SSR/server runtime projects early", () => {
   assert.match(output, /static export|output:\s*"export"/i);
 });
 
+test("deskpack build --skip-package works for backend-serves-frontend topology", () => {
+  const projectDir = copyFixtureToTemp("backend-serves-frontend");
+
+  const initResult = runCli(["init", "--yes", "--force"], projectDir, {
+    DESKPACK_SKIP_ELECTRON_INSTALL: "1",
+  });
+  assert.equal(initResult.status, 0, commandOutput(initResult));
+
+  const buildResult = runCli(["build", "--skip-package"], projectDir);
+  assert.equal(buildResult.status, 0, commandOutput(buildResult));
+
+  const serverDir = path.join(projectDir, ".deskpack", "desktop", "server");
+  assert.ok(fs.existsSync(path.join(serverDir, "web-dist", "index.html")));
+  assert.ok(fs.existsSync(path.join(serverDir, "dist", "index.html")));
+  // Backend resolves relative to __dirname (../ after bundling into server/src/)
+  assert.ok(fs.existsSync(path.join(serverDir, "index.html")));
+  assert.ok(fs.existsSync(path.join(serverDir, "src", "server.mjs")));
+});
+
 test("deskpack build refuses unsupported cross-platform packaging with reasons", () => {
   const projectDir = copyFixtureToTemp("frontend-only-static");
 

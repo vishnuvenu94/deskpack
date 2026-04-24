@@ -129,6 +129,15 @@ export async function buildCommand(
   if (path.resolve(preservedFrontendDistPath) !== path.resolve(path.join(serverDir, "web-dist"))) {
     copyDirSync(frontendDistPath, preservedFrontendDistPath);
   }
+
+  // For backend-serves-frontend topology, backends often resolve static files
+  // relative to __dirname (e.g., path.join(__dirname, '..')). After bundling,
+  // __dirname becomes server/src/, so the parent dir is server/. Copy the
+  // frontend build output to the server root so these relative resolutions work.
+  if (config.topology === "backend-serves-frontend") {
+    copyDirSync(frontendDistPath, serverDir);
+  }
+
   log.success("Copied frontend build to server bundle");
 
   // 3. Bundle backend -------------------------------------------------------
