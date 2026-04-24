@@ -33,6 +33,22 @@ test("deskpack build --skip-package works for frontend-only projects", () => {
   assert.equal(fs.existsSync(path.join(serverDir, "server.mjs")), false);
 });
 
+test("deskpack init captures hardcoded Nest backend port and health route", () => {
+  const projectDir = copyFixtureToTemp("nest-hardcoded-port");
+
+  const result = runCli(["init", "--yes", "--force"], projectDir, {
+    DESKPACK_SKIP_ELECTRON_INSTALL: "1",
+  });
+
+  assert.equal(result.status, 0, commandOutput(result));
+
+  const config = JSON.parse(
+    fs.readFileSync(path.join(projectDir, "deskpack.config.json"), "utf-8"),
+  );
+  assert.equal(config.backend.devPort, 3300);
+  assert.equal(config.backend.healthCheckPath, "/health");
+});
+
 test("deskpack init refuses Next SSR/server runtime projects early", () => {
   const projectDir = copyFixtureToTemp("next-ssr-unsupported");
 

@@ -46,3 +46,11 @@ test("detects native backend dependencies", () => {
   const project = detectProject(fixturePath("native-dependency"));
   assert.ok(project.backend.nativeDeps.includes("better-sqlite3"));
 });
+
+test("detects hardcoded Nest backend port and health route", () => {
+  const project = detectProject(fixturePath("nest-hardcoded-port"));
+  assert.equal(project.topology, "frontend-static-separate");
+  assert.equal(project.backend.framework, "nestjs");
+  assert.equal(project.backend.devPort, 3300);
+  assert.equal(project.backend.healthCheckPath, "/health");
+});

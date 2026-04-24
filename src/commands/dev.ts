@@ -46,6 +46,15 @@ export async function devCommand(rootDir: string): Promise<void> {
     config.topology !== "frontend-only-static" && config.backend.path !== "";
   let frontendPort = config.frontend.devPort;
   let backendPort = hasBackend ? config.backend.devPort : 0;
+  const separateDevPackages =
+    hasBackend &&
+    config.monorepo.type === "none" &&
+    config.backend.path !== config.frontend.path;
+  const shouldWaitForBackend =
+    hasBackend &&
+    (config.topology === "frontend-static-separate" ||
+      config.monorepo.type !== "none" ||
+      separateDevPackages);
 
   const frontendAlreadyRunning = await isPortInUse(frontendPort);
   const backendAlreadyRunning = hasBackend
@@ -60,16 +69,6 @@ export async function devCommand(rootDir: string): Promise<void> {
     if (!selected.reusedPreferred) {
       log.warn(
         `Frontend port ${config.frontend.devPort} is busy. Falling back to ${frontendPort}.`,
-      );
-    }
-  }
-
-  if (hasBackend && !backendAlreadyRunning) {
-    const selected = await findAvailablePort(backendPort);
-    backendPort = selected.port;
-    if (!selected.reusedPreferred) {
-      log.warn(
-        `Backend port ${config.backend.devPort} is busy. Falling back to ${backendPort}.`,
       );
     }
   }
@@ -151,40 +150,93 @@ export async function devCommand(rootDir: string): Promise<void> {
         config.frontend.path === "."
           ? rootDir
           : path.join(rootDir, config.frontend.path);
-      const label = hasBackend ? "Starting dev servers…" : "Starting frontend dev…";
-      log.step(label, `${pm} run dev`);
+      const frontendPkg = JSON.parse(
+        fs.readFileSync(path.join(frontendCwd, "package.json"), "utf-8"),
+      ) as { scripts?: Record<string, string> };
+      const frontendScript = frontendPkg.scripts?.dev ? "dev" : "start";
 
-      const devProcess = spawn(pm, ["run", "dev"], {
-        cwd: frontendCwd,
-        stdio: "pipe",
-        shell: true,
-        env: {
-          ...process.env,
-          PORT: String(frontendPort),
-          DESKPACK_FRONTEND_PORT: String(frontendPort),
-          DESKPACK_BACKEND_PORT: hasBackend ? String(backendPort) : "",
-        },
-      });
-      devProcess.stdout?.on("data", (data: Buffer) => process.stdout.write(data));
-      devProcess.stderr?.on("data", (data: Buffer) => process.stderr.write(data));
-      devProcesses.push(devProcess);
-    }
+      if (separateDevPackages && !frontendAlreadyRunning) {
+        log.step("Starting frontend dev…", `${pm} run ${frontendScript}`);
 
-    log.step("Waiting for frontend server…");
-    await waitForHttpEndpoint(frontendPort, ["/", "/index.html", "/healthz", "/health"], 30_000);
-    log.success(`Frontend ready on port ${frontendPort}`);
+        const frontendProcess = spawn(pm, ["run", frontendScript], {
+          cwd: frontendCwd,
+          stdio: "pipe",
+          shell: true,
+          env: {
+            ...process.env,
+            PORT: String(frontendPort),
+            DESKPACK_FRONTEND_PORT: String(frontendPort),
+            DESKPACK_BACKEND_PORT: hasBackend ? String(backendPort) : "",
+          },
+        });
+        frontendProcess.stdout?.on("data", (data: Buffer) => process.stdout.write(data));
+        frontendProcess.stderr?.on("data", (data: Buffer) => process.stderr.write(data));
+        devProcesses.push(frontendProcess);
+      }
 
-    if (hasBackend && config.monorepo.type !== "none" && !backendAlreadyRunning) {
-      log.step("Waiting for backend server…");
-      await waitForHttpEndpoint(
-        backendPort,
-        [config.backend.healthCheckPath ?? "/", "/healthz", "/health", "/ready", "/"],
-        30_000,
-      );
-      log.success(`Backend ready on port ${backendPort}`);
+      if (separateDevPackages && !backendAlreadyRunning) {
+        const backendCwd =
+          config.backend.path === "."
+            ? rootDir
+            : path.join(rootDir, config.backend.path);
+        const backendPkg = JSON.parse(
+          fs.readFileSync(path.join(backendCwd, "package.json"), "utf-8"),
+        ) as { scripts?: Record<string, string> };
+        const backendScript = backendPkg.scripts?.dev ? "dev" : "start";
+
+        log.step("Starting backend dev…", `${pm} run ${backendScript}`);
+
+        const backendProcess = spawn(pm, ["run", backendScript], {
+          cwd: backendCwd,
+          stdio: "pipe",
+          shell: true,
+          env: {
+            ...process.env,
+            PORT: String(backendPort),
+            DESKPACK_BACKEND_PORT: String(backendPort),
+          },
+        });
+        backendProcess.stdout?.on("data", (data: Buffer) => process.stdout.write(data));
+        backendProcess.stderr?.on("data", (data: Buffer) => process.stderr.write(data));
+        devProcesses.push(backendProcess);
+      }
+
+      if (!separateDevPackages && (!frontendAlreadyRunning || (hasBackend && !backendAlreadyRunning))) {
+        const label = hasBackend ? "Starting dev servers…" : "Starting frontend dev…";
+        log.step(label, `${pm} run ${frontendScript}`);
+
+        const devProcess = spawn(pm, ["run", frontendScript], {
+          cwd: frontendCwd,
+          stdio: "pipe",
+          shell: true,
+          env: {
+            ...process.env,
+            PORT: String(frontendPort),
+            DESKPACK_FRONTEND_PORT: String(frontendPort),
+            DESKPACK_BACKEND_PORT: hasBackend ? String(backendPort) : "",
+          },
+        });
+        devProcess.stdout?.on("data", (data: Buffer) => process.stdout.write(data));
+        devProcess.stderr?.on("data", (data: Buffer) => process.stderr.write(data));
+        devProcesses.push(devProcess);
+      }
     }
   } else {
     log.success("Dev servers already running");
+  }
+
+  log.step("Waiting for frontend server…");
+  await waitForHttpEndpoint(frontendPort, ["/", "/index.html", "/healthz", "/health"], 30_000);
+  log.success(`Frontend ready on port ${frontendPort}`);
+
+  if (shouldWaitForBackend) {
+    log.step("Waiting for backend server…");
+    await waitForHttpEndpoint(
+      backendPort,
+      [config.backend.healthCheckPath ?? "/", "/healthz", "/health", "/ready", "/"],
+      30_000,
+    );
+    log.success(`Backend ready on port ${backendPort}`);
   }
 
   const runtimeConfig: DeskpackConfig = {

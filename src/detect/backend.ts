@@ -65,7 +65,7 @@ export function detectBackend(
   const entryAbsolutePath = path.resolve(rootDir, entry);
 
   // --- Port ----------------------------------------------------------------
-  const devPort = detectServerPort(fullPath, pkg);
+  const devPort = detectServerPort(fullPath, pkg, entryAbsolutePath);
 
   // --- Native dependencies -------------------------------------------------
   const nativeDeps = collectNativeDeps(allDeps);
@@ -213,6 +213,7 @@ function detectEntryPoint(
 function detectServerPort(
   fullPath: string,
   pkg: Record<string, unknown>,
+  entryAbsolutePath: string,
 ): number {
   // Check scripts for PORT env
   const scripts = pkg.scripts as Record<string, string> | undefined;
@@ -220,25 +221,11 @@ function detectServerPort(
   const portMatch = scriptText.match(/PORT\s*[=:]\s*(\d+)/);
   if (portMatch) return parseInt(portMatch[1], 10);
 
-  // Check source files for port declarations
-  const candidates = [
-    "src/index.ts",
-    "src/index.js",
-    "src/server.ts",
-    "src/server.js",
-    "index.ts",
-    "index.js",
-  ];
+  for (const filePath of backendEntryCandidates(fullPath, entryAbsolutePath)) {
+    if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) continue;
 
-  for (const candidate of candidates) {
-    const filePath = path.join(fullPath, candidate);
-    if (fs.existsSync(filePath)) {
-      const content = fs.readFileSync(filePath, "utf-8");
-      const match = content.match(
-        /(?:port|PORT)\s*(?:=|:|\?\?)\s*["']?(\d{3,5})["']?/,
-      );
-      if (match) return parseInt(match[1], 10);
-    }
+    const detectedPort = detectPortFromContent(fs.readFileSync(filePath, "utf-8"));
+    if (detectedPort) return detectedPort;
   }
 
   return 3000;
@@ -259,20 +246,7 @@ function detectHealthCheckPath(
     /router\s*\.\s*get\s*\(\s*["'`](\/[^"'`]*health[^"'`]*)["'`]/,
   ];
 
-  const candidateFiles = new Set<string>([
-    entryAbsolutePath,
-    path.join(packageDir, "src/index.ts"),
-    path.join(packageDir, "src/index.js"),
-    path.join(packageDir, "src/server.ts"),
-    path.join(packageDir, "src/server.js"),
-    path.join(packageDir, "index.ts"),
-    path.join(packageDir, "index.js"),
-    path.join(packageDir, "server.ts"),
-    path.join(packageDir, "server.js"),
-  ]);
-
-  for (const filePath of candidateFiles) {
-    if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) continue;
+  for (const filePath of collectCodeFiles(packageDir, entryAbsolutePath)) {
     const content = fs.readFileSync(filePath, "utf-8");
 
     for (const regex of healthPathRegexes) {
@@ -282,9 +256,112 @@ function detectHealthCheckPath(
         if (normalized) return normalized;
       }
     }
+
+    const nestHealthPath = detectNestHealthPath(content);
+    if (nestHealthPath) return nestHealthPath;
   }
 
   return "/";
+}
+
+function backendEntryCandidates(
+  packageDir: string,
+  entryAbsolutePath: string,
+): string[] {
+  return [...new Set([
+    entryAbsolutePath,
+    path.join(packageDir, "src/index.ts"),
+    path.join(packageDir, "src/index.js"),
+    path.join(packageDir, "src/server.ts"),
+    path.join(packageDir, "src/server.js"),
+    path.join(packageDir, "src/main.ts"),
+    path.join(packageDir, "src/main.js"),
+    path.join(packageDir, "index.ts"),
+    path.join(packageDir, "index.js"),
+    path.join(packageDir, "server.ts"),
+    path.join(packageDir, "server.js"),
+    path.join(packageDir, "main.ts"),
+    path.join(packageDir, "main.js"),
+  ])];
+}
+
+function detectPortFromContent(content: string): number | null {
+  const patterns = [
+    /\bPORT\s*[=:]\s*(\d{3,5})\b/,
+    /process\.env\.PORT\s*(?:\|\||\?\?)\s*(\d{3,5})\b/,
+    /\.\s*listen\s*\(\s*(\d{3,5})\b/,
+    /\b(?:const|let|var)\s+\w*port\w*\s*=\s*(\d{3,5})\b/i,
+    /(?:port|PORT)\s*(?:=|:|\?\?)\s*["'`]?(\d{3,5})["'`]?/,
+  ];
+
+  for (const pattern of patterns) {
+    const match = content.match(pattern);
+    if (match?.[1]) {
+      return parseInt(match[1], 10);
+    }
+  }
+
+  return null;
+}
+
+function collectCodeFiles(
+  packageDir: string,
+  entryAbsolutePath: string,
+): string[] {
+  const files = new Set<string>();
+
+  for (const candidate of backendEntryCandidates(packageDir, entryAbsolutePath)) {
+    if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
+      files.add(candidate);
+    }
+  }
+
+  const visit = (dirPath: string): void => {
+    if (!fs.existsSync(dirPath) || !fs.statSync(dirPath).isDirectory()) return;
+
+    for (const entry of fs.readdirSync(dirPath, { withFileTypes: true })) {
+      if (entry.isDirectory()) {
+        if (["node_modules", "dist", "build", "coverage"].includes(entry.name)) continue;
+        visit(path.join(dirPath, entry.name));
+        continue;
+      }
+
+      if (!entry.isFile()) continue;
+      if (!/\.(ts|js|mjs|cjs|tsx|jsx)$/.test(entry.name)) continue;
+      files.add(path.join(dirPath, entry.name));
+    }
+  };
+
+  visit(packageDir);
+  return [...files];
+}
+
+function detectNestHealthPath(content: string): string | null {
+  const controllerMatch = content.match(
+    /@Controller\s*\(\s*(?:["'`](\/?[^"'`]*)["'`])?\s*\)/,
+  );
+  const controllerPrefix = normalizeRouteSegment(controllerMatch?.[1] ?? "");
+
+  const controllerLooksLikeHealth = containsHealthKeyword(controllerPrefix);
+  const routeRegex =
+    /@(?:Get|Head|All)\s*\(\s*(?:["'`](\/?[^"'`]*)["'`])?\s*\)/g;
+
+  for (const match of content.matchAll(routeRegex)) {
+    const methodPath = normalizeRouteSegment(match[1] ?? "");
+    const combined = [controllerPrefix, methodPath].filter(Boolean).join("/");
+
+    if (!containsHealthKeyword(combined) && !(controllerLooksLikeHealth && methodPath.length === 0)) {
+      continue;
+    }
+
+    if (combined.length > 0) {
+      return normalizeHealthPath(`/${combined}`);
+    }
+
+    return "/";
+  }
+
+  return null;
 }
 
 function normalizeHealthPath(value: string): string | null {
@@ -295,4 +372,12 @@ function normalizeHealthPath(value: string): string | null {
   if (withoutQuery.length === 0) return null;
 
   return withoutQuery;
+}
+
+function normalizeRouteSegment(value: string): string {
+  return value.trim().replace(/^\/+|\/+$/g, "");
+}
+
+function containsHealthKeyword(value: string): boolean {
+  return /(healthz?|ready|status)/i.test(value);
 }

@@ -115,6 +115,28 @@ test("generated electron runtime includes API proxy for frontend-static-separate
   assert.match(runtime, /startStaticServer\(PREFERRED_FRONTEND_PORT, backendPort\)/);
 });
 
+test("generated electron runtime requires the configured backend port", () => {
+  const config = sampleConfig();
+  config.topology = "frontend-static-separate";
+  config.backend = {
+    path: ".",
+    framework: "nestjs",
+    entry: "backend/src/main.ts",
+    devPort: 3300,
+    nativeDeps: [],
+    healthCheckPath: "/health",
+    apiPrefixes: ["/api"],
+  };
+
+  const runtime = generateElectronMain(config);
+  assert.match(runtime, /requireConfiguredPort/);
+  assert.match(
+    runtime,
+    /Configured[\s\S]*is unavailable\. Stop the process using it or update deskpack\.config\.json\./,
+  );
+  assert.match(runtime, /DESKPACK_BACKEND_PORT/);
+});
+
 test("frontend-only-static topology has no API proxy when backendPort is 0", () => {
   const config = sampleConfig();
   config.topology = "frontend-only-static";

@@ -49,7 +49,7 @@ Flags:
 ### `deskpack dev`
 
 - Starts missing dev servers when needed
-- Handles busy configured ports with free-port fallback
+- Keeps backend on its configured port and only falls back for the frontend dev server
 - Regenerates runtime launcher with selected dev ports
 - Launches Electron against your running frontend dev server
 

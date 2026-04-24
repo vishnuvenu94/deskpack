@@ -177,6 +177,25 @@ async function resolvePort(preferredPort, label) {
   return fallbackPort;
 }
 
+async function requireConfiguredPort(preferredPort, label) {
+  if (preferredPort <= 0) {
+    throw new Error("No configured " + label + " port was provided.");
+  }
+
+  if (!(await isPortFree(preferredPort))) {
+    throw new Error(
+      "Configured " +
+        label +
+        " port " +
+        preferredPort +
+        " is unavailable. Stop the process using it or update deskpack.config.json.",
+    );
+  }
+
+  logInfo("Using " + label + " port " + preferredPort + ".");
+  return preferredPort;
+}
+
 function probeHttp(port, probePath, timeoutMs = 1200) {
   return new Promise((resolve) => {
     const request = http.get(
@@ -395,7 +414,7 @@ async function startStaticServer(preferredPort, backendPort) {
 }
 
 async function startBundledBackend(preferredPort) {
-  const backendPort = await resolvePort(preferredPort, "backend");
+  const backendPort = await requireConfiguredPort(preferredPort, "backend");
   const serverPath = path.join(process.resourcesPath, "server", "server.mjs");
   if (!fs.existsSync(serverPath)) {
     throw new Error("Backend bundle missing: " + serverPath);
@@ -408,6 +427,7 @@ async function startBundledBackend(preferredPort) {
     env: {
       ...process.env,
       PORT: String(backendPort),
+      DESKPACK_BACKEND_PORT: String(backendPort),
       NODE_ENV: "production",
     },
     cwd: path.dirname(serverPath),
