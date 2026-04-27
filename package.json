@@ -6,7 +6,7 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "bin": {
-    "deskpack": "./dist/cli.js"
+    "deskpack": "dist/cli.js"
   },
   "files": [
     "dist",
@@ -24,7 +24,8 @@
     "lint": "tsc --noEmit",
     "test": "npm run build && node --test \"test/**/*.test.mjs\"",
     "check:naming": "node ./scripts/check-legacy-name.mjs",
-    "check:release": "npm run check:naming && npm run lint && npm run test && npm pack --dry-run --cache ./.npm-cache && node ./scripts/validate-bin.mjs"
+    "check:release": "npm run check:naming && npm run lint && npm run test && npm pack --dry-run --cache ./.npm-cache && node ./scripts/validate-bin.mjs && node ./scripts/validate-version.mjs",
+    "check:publish": "npm run check:release && npm audit && npm publish --dry-run --tag beta --access public --cache ./.npm-cache"
   },
   "keywords": [
     "deskpack",
@@ -64,10 +65,14 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/deskpack/deskpack.git"
+    "url": "git+https://github.com/deskpack/deskpack.git"
   },
   "homepage": "https://github.com/deskpack/deskpack#readme",
   "bugs": {
     "url": "https://github.com/deskpack/deskpack/issues"
+  },
+  "publishConfig": {
+    "access": "public",
+    "tag": "beta"
   }
 }

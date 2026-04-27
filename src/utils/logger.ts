@@ -1,7 +1,9 @@
 import chalk from "chalk";
 import ora, { type Ora } from "ora";
+import { getDeskpackVersion } from "../version.js";
 
 const PREFIX = chalk.hex("#0F766E").bold("deskpack");
+const VERSION = getDeskpackVersion();
 
 /**
  * Pretty logger with coloured prefixes, spinners, and structured output.
@@ -59,7 +61,7 @@ export const log = {
     console.log(
       chalk.hex("#0F766E").bold("  │") +
         chalk.white.bold("  ⚡ deskpack ") +
-        chalk.dim("v0.1.0-beta.1") +
+        chalk.dim(`v${VERSION}`) +
         "               " +
         chalk.hex("#0F766E").bold("│"),
     );

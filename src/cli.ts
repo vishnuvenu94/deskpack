@@ -5,8 +5,10 @@ import { initCommand, type InitCommandOptions } from "./commands/init.js";
 import { devCommand } from "./commands/dev.js";
 import { buildCommand } from "./commands/build.js";
 import { log } from "./utils/logger.js";
+import { getDeskpackVersion } from "./version.js";
 
 const MIN_NODE_VERSION = 18;
+const VERSION = getDeskpackVersion();
 
 function checkNodeVersion(): void {
   const [major] = process.version.slice(1).split(".").map(Number);
@@ -27,7 +29,7 @@ program
   .description(
     "Package JavaScript frontend or full-stack apps as desktop applications.",
   )
-  .version("0.1.0-beta.1");
+  .version(VERSION);
 
 program
   .command("init")

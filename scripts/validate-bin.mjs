@@ -14,8 +14,8 @@ if (pkg.name !== "deskpack") {
   fail(`Expected package name "deskpack", found "${pkg.name}".`);
 }
 
-if (!pkg.bin || pkg.bin.deskpack !== "./dist/cli.js") {
-  fail('Expected "bin.deskpack" to point at "./dist/cli.js".');
+if (!pkg.bin || pkg.bin.deskpack !== "dist/cli.js") {
+  fail('Expected "bin.deskpack" to point at "dist/cli.js".');
 }
 
 if (!fs.existsSync(cliPath)) {

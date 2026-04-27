@@ -7,11 +7,25 @@
 ## Beta Scope
 
 - Frontend-only static apps
-- Full-stack Node backends where:
-  - backend serves frontend static files, or
-  - frontend is static and served separately from an API backend
+- Full-stack Node backends where the backend serves frontend static files, or the frontend is static and served separately from an API backend
 - Next.js static export (`output: "export"`) only
-- Next.js SSR/server runtime is rejected early
+- TanStack Start SPA/static prerender output
+- Monorepo detection for common npm, pnpm, and yarn workspace layouts
+
+## Not Supported
+
+- Next.js SSR or standalone server runtime
+- TanStack Start runtime server routes, handlers, or non-static server functions
+- Dockerized runtime packaging
+- First-class database lifecycle workflows such as migrations, seeding, backup, or upgrade orchestration
+- Auto-update, signing, notarization, tray integrations, deep links, and other release-grade desktop platform workflows
+
+## When Not to Use Deskpack
+
+- You are starting a brand-new Electron app and want a purpose-built Electron architecture from day one
+- Your app depends on SSR as a core runtime feature
+- You need a polished desktop release pipeline with updates, signing, and native OS integrations out of the box
+- You want Docker to remain part of the shipped runtime model
 
 ## Quick Start
 
@@ -150,6 +164,10 @@ Output directory:
 
 - Node.js >= 18
 - JavaScript project with a supported frontend topology
+
+## Publishing Status
+
+`deskpack` is currently intended for beta use. Publish and install it with the beta dist-tag until the supported topology matrix has been proven on more real projects.
 
 ## License
 
