@@ -45,6 +45,7 @@ export function loadConfig(rootDir: string): DeskpackConfig {
       raw.frontend.path,
       raw.frontend.framework,
       raw.frontend.distDir,
+      raw.frontend.tanstackStart ?? null,
     );
 
     raw.topology = topology;

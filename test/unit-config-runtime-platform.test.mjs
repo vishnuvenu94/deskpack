@@ -67,6 +67,13 @@ test("generated electron runtime includes single-instance + hardening logic", ()
   assert.doesNotMatch(runtime, /shipdesk/i);
 });
 
+test("generated static server supports TanStack _shell.html and prerendered HTML", () => {
+  const runtime = generateElectronMain(sampleConfig());
+  assert.match(runtime, /_shell\.html/);
+  assert.match(runtime, /resolvePackagedHtmlEntry/);
+  assert.match(runtime, /hasAnyHtmlUnder/);
+});
+
 test("platform policy allows same-platform builds", () => {
   const host = process.platform;
   if (!["darwin", "linux", "win32"].includes(host)) {

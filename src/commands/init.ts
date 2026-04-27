@@ -78,9 +78,12 @@ export async function initCommand(
   }
 
   if (project.topology === "ssr-framework") {
-    throw new Error(
-      "Next.js SSR/server runtime projects are not supported. Configure static export (output: \"export\") and run init again.",
-    );
+    const detail =
+      project.topologyEvidence.warnings.length > 0
+        ? project.topologyEvidence.warnings.join(" ")
+        : "SSR/server runtime projects are not supported for deskpack static packaging. " +
+          "For Next.js, configure static export (output: \"export\") and run init again.";
+    throw new Error(detail);
   }
 
   if (project.topology === "unsupported") {
@@ -156,6 +159,9 @@ export async function initCommand(
       buildCommand: project.frontend.buildCommand,
       distDir: project.frontend.distDir,
       devPort: project.frontend.devPort,
+      ...(project.frontend.tanstackStart
+        ? { tanstackStart: project.frontend.tanstackStart }
+        : {}),
     },
     backend: {
       path: project.backend.path,

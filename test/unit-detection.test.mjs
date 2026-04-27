@@ -29,6 +29,13 @@ test("detects Next static export as supported", () => {
   assert.equal(project.topology, "frontend-static-separate");
 });
 
+test("detects Next static export with custom distDir", () => {
+  const project = detectProject(fixturePath("next-static-export-custom-distdir"));
+  assert.equal(project.frontend.framework, "next");
+  assert.equal(project.topology, "frontend-only-static");
+  assert.equal(project.frontend.distDir, "dist");
+});
+
 test("detects Next SSR/server runtime as unsupported", () => {
   const project = detectProject(fixturePath("next-ssr-unsupported"));
   assert.equal(project.frontend.framework, "next");
@@ -59,4 +66,45 @@ test("detects hardcoded Nest backend port and health route", () => {
   assert.equal(project.backend.framework, "nestjs");
   assert.equal(project.backend.devPort, 3300);
   assert.equal(project.backend.healthCheckPath, "/health");
+});
+
+test("TanStack Start SPA static mode is frontend-only with dist/client", () => {
+  const project = detectProject(fixturePath("tanstack-start-spa-static"));
+  assert.equal(project.topology, "frontend-only-static");
+  assert.ok(project.frontend.tanstackStart?.isConfirmed);
+  assert.equal(project.frontend.tanstackStart?.spaEnabled, true);
+  assert.equal(project.frontend.tanstackStart?.ineligibilityReasons.length, 0);
+  assert.ok(
+    project.frontend.distDir.replace(/\\/g, "/").endsWith("dist/client"),
+  );
+});
+
+test("TanStack Start prerender static mode is supported", () => {
+  const project = detectProject(fixturePath("tanstack-start-prerender-static"));
+  assert.equal(project.topology, "frontend-only-static");
+  assert.ok(project.frontend.tanstackStart?.isConfirmed);
+  assert.equal(project.frontend.tanstackStart?.prerenderEnabled, true);
+  assert.equal(project.frontend.tanstackStart?.ineligibilityReasons.length, 0);
+});
+
+test("TanStack Start runtime server routes block static packaging", () => {
+  const project = detectProject(fixturePath("tanstack-start-runtime-api"));
+  assert.equal(project.topology, "ssr-framework");
+  assert.ok(project.frontend.tanstackStart?.isConfirmed);
+  assert.ok(
+    project.topologyEvidence.warnings.some((w) =>
+      /server\.handlers|handlers/i.test(w),
+    ),
+  );
+});
+
+test("TanStack Start without spa/prerender is unsupported", () => {
+  const project = detectProject(fixturePath("tanstack-start-no-static"));
+  assert.equal(project.topology, "ssr-framework");
+  assert.ok(project.frontend.tanstackStart?.isConfirmed);
+  assert.ok(
+    project.topologyEvidence.warnings.some((w) =>
+      /SPA|prerender|static prerendering/i.test(w),
+    ),
+  );
 });

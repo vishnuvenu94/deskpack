@@ -29,4 +29,5 @@ export type {
   FrontendFramework,
   UILibrary,
   BackendFramework,
+  TanstackStartInfo,
 } from "./types.js";

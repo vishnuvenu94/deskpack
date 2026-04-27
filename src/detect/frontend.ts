@@ -279,7 +279,7 @@ function determineDistDir(
     case "vite":
       return detectViteDistDir(rootDir, searchPath, base);
     case "next":
-      return path.join(base, "out");
+      return detectNextDistDir(rootDir, searchPath, base);
     case "cra":
       return path.join(base, "build");
     case "angular":
@@ -291,6 +291,43 @@ function determineDistDir(
     default:
       return path.join(base, "dist");
   }
+}
+
+/**
+ * Read Next.js config to determine the static export output directory.
+ * Next static export defaults to `out`, but a custom `distDir` changes where
+ * exported HTML is emitted for `output: "export"`.
+ */
+function detectNextDistDir(rootDir: string, searchPath: string, base: string): string {
+  const fullPath = path.resolve(rootDir, searchPath);
+  const nextConfigNames = [
+    "next.config.ts",
+    "next.config.js",
+    "next.config.mjs",
+    "next.config.cjs",
+  ];
+
+  for (const configName of nextConfigNames) {
+    const configPath = path.join(fullPath, configName);
+    if (!fs.existsSync(configPath)) continue;
+
+    try {
+      const content = fs.readFileSync(configPath, "utf-8");
+      const match = content.match(/distDir\s*:\s*['"`]([^'"`]+)['"`]/);
+      if (match) {
+        const distDir = match[1];
+        const resolved = path.resolve(fullPath, distDir);
+        const relativeToRoot = path.relative(rootDir, resolved);
+        if (!relativeToRoot.startsWith("..") && !path.isAbsolute(relativeToRoot)) {
+          return relativeToRoot;
+        }
+      }
+    } catch {
+      // If parsing fails, fall through to default.
+    }
+  }
+
+  return path.join(base, "out");
 }
 
 /**

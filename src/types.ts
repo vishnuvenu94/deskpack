@@ -56,6 +56,16 @@ export interface MonorepoInfo {
   workspaces: string[];
 }
 
+/** TanStack Start analysis for deskpack static-only packaging. */
+export interface TanstackStartInfo {
+  /** Start dependency present and `tanstackStart`-style plugin call found in Vite config. */
+  isConfirmed: boolean;
+  spaEnabled: boolean;
+  prerenderEnabled: boolean;
+  /** Non-empty when this Start app cannot be packaged as static-only. */
+  ineligibilityReasons: string[];
+}
+
 export interface FrontendInfo {
   framework: FrontendFramework;
   uiLibrary: UILibrary;
@@ -64,6 +74,8 @@ export interface FrontendInfo {
   devCommand: string;
   devPort: number;
   distDir: string;
+  /** Set when `@tanstack/react-start` / `@tanstack/solid-start` + Vite plugin usage is confirmed. */
+  tanstackStart?: TanstackStartInfo;
 }
 
 export interface BackendInfo {
@@ -120,6 +132,7 @@ export interface DeskpackConfig {
     buildCommand: string;
     distDir: string;
     devPort: number;
+    tanstackStart?: TanstackStartInfo;
   };
 backend: {
     framework: BackendFramework;

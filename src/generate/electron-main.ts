@@ -342,6 +342,32 @@ function sendStaticFile(filePath, response) {
   });
 }
 
+function resolvePackagedHtmlEntry(staticRoot) {
+  const indexFile = path.join(staticRoot, "index.html");
+  const shellFile = path.join(staticRoot, "_shell.html");
+  if (fs.existsSync(indexFile)) return indexFile;
+  if (fs.existsSync(shellFile)) return shellFile;
+  return null;
+}
+
+function hasAnyHtmlUnder(dir, depth) {
+  if (depth > 8) return false;
+  let entries;
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return false;
+  }
+  for (const entry of entries) {
+    if (entry.name.startsWith(".")) continue;
+    if (entry.name === "node_modules") continue;
+    const full = path.join(dir, entry.name);
+    if (entry.isFile() && entry.name.endsWith(".html")) return true;
+    if (entry.isDirectory() && hasAnyHtmlUnder(full, depth + 1)) return true;
+  }
+  return false;
+}
+
 function serveStaticRequest(staticRoot, request, response) {
   let pathname = "/";
   try {
@@ -353,7 +379,7 @@ function serveStaticRequest(staticRoot, request, response) {
     return;
   }
 
-  const entryFile = path.join(staticRoot, "index.html");
+  const packagedEntry = resolvePackagedHtmlEntry(staticRoot);
   const requestedPath = pathname === "/" ? "/index.html" : pathname;
   const resolved = resolveStaticPath(staticRoot, requestedPath);
   if (!resolved) {
@@ -375,8 +401,8 @@ function serveStaticRequest(staticRoot, request, response) {
     return;
   }
 
-  if (!path.extname(pathname) && fs.existsSync(entryFile)) {
-    sendStaticFile(entryFile, response);
+  if (!path.extname(pathname) && packagedEntry && fs.existsSync(packagedEntry)) {
+    sendStaticFile(packagedEntry, response);
     return;
   }
 
@@ -424,9 +450,12 @@ function proxyApiRequest(request, response, backendPort) {
 
 async function startStaticServer(preferredPort, backendPort) {
   const staticRoot = path.join(process.resourcesPath, "server", "web-dist");
-  const entryFile = path.join(staticRoot, "index.html");
-  if (!fs.existsSync(entryFile)) {
-    throw new Error("Frontend build output missing: " + entryFile);
+  const packagedEntry = resolvePackagedHtmlEntry(staticRoot);
+  if (!packagedEntry && !hasAnyHtmlUnder(staticRoot, 0)) {
+    throw new Error(
+      "Frontend build output missing static HTML (expected index.html, _shell.html, or prerendered *.html) under " +
+        staticRoot,
+    );
   }
 
   const port = await resolvePort(preferredPort, "frontend");

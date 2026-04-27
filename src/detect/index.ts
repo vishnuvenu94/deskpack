@@ -8,6 +8,7 @@ import {
   collectNativeDepsFromWorkspaces,
 } from "./backend.js";
 import { detectTopology } from "./topology.js";
+import { analyzeTanstackStart } from "./tanstack-start.js";
 import type { ProjectConfig, FrontendInfo, BackendInfo } from "../types.js";
 
 /**
@@ -103,9 +104,25 @@ export function detectProject(rootDir: string): ProjectConfig {
   }
   backend ??= createFrontendOnlyBackend();
 
+  let frontendResolved: FrontendInfo = frontend;
+  const tanstackStart = analyzeTanstackStart(rootDir, frontendResolved);
+  if (tanstackStart) {
+    frontendResolved = { ...frontendResolved, tanstackStart };
+    if (
+      tanstackStart.isConfirmed &&
+      tanstackStart.ineligibilityReasons.length === 0
+    ) {
+      const base = frontendResolved.path === "." ? "" : frontendResolved.path;
+      frontendResolved = {
+        ...frontendResolved,
+        distDir: path.join(base, "dist", "client"),
+      };
+    }
+  }
+
   // ---- Detect API prefixes for proxy ---------------------------------------
-  if (backend.path.length > 0 && frontend) {
-    const proxyConfig = detectApiPrefixes(rootDir, frontend.path);
+  if (backend.path.length > 0 && frontendResolved) {
+    const proxyConfig = detectApiPrefixes(rootDir, frontendResolved.path);
     backend.apiPrefixes = proxyConfig.prefixes;
     if (proxyConfig.proxyRewrite) {
       backend.proxyRewrite = proxyConfig.proxyRewrite;
@@ -117,9 +134,10 @@ export function detectProject(rootDir: string): ProjectConfig {
     rootDir,
     backend.path,
     backend.entry,
-    frontend.path,
-    frontend.framework,
-    frontend.distDir,
+    frontendResolved.path,
+    frontendResolved.framework,
+    frontendResolved.distDir,
+    frontendResolved.tanstackStart ?? null,
   );
 
   return {
@@ -128,7 +146,7 @@ export function detectProject(rootDir: string): ProjectConfig {
     version,
     rootDir,
     monorepo,
-    frontend,
+    frontend: frontendResolved,
     backend,
     topology,
     topologyEvidence: evidence,

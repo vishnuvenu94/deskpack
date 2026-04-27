@@ -20,9 +20,11 @@ export async function devCommand(rootDir: string): Promise<void> {
   const config = loadConfig(rootDir);
 
   if (config.topology === "ssr-framework") {
-    throw new Error(
-      "Next.js SSR/server runtime projects are not supported by deskpack dev. Use static export mode.",
-    );
+    const detail =
+      config.topologyEvidence.warnings.length > 0
+        ? config.topologyEvidence.warnings.join(" ")
+        : "SSR/server runtime topology is not supported by deskpack dev.";
+    throw new Error(detail);
   }
 
   if (config.topology === "unsupported") {

@@ -4,6 +4,7 @@ import type {
   Topology,
   TopologyEvidence,
   FrontendFramework,
+  TanstackStartInfo,
 } from "../types.js";
 
 /** Patterns that indicate the backend serves static files. */
@@ -81,6 +82,7 @@ export function detectTopology(
   frontendPath: string,
   frontendFramework: FrontendFramework,
   frontendDistDir: string,
+  tanstackStart?: TanstackStartInfo | null,
 ): { topology: Topology; evidence: TopologyEvidence } {
   const evidence: TopologyEvidence = {
     staticServingPatterns: [],
@@ -89,6 +91,17 @@ export function detectTopology(
     frontendDistFound: false,
     warnings: [],
   };
+
+  if (
+    tanstackStart?.isConfirmed &&
+    tanstackStart.ineligibilityReasons.length > 0
+  ) {
+    evidence.warnings.push(...tanstackStart.ineligibilityReasons);
+    return {
+      topology: "ssr-framework",
+      evidence,
+    };
+  }
 
   // If no backend, it's frontend-only
   if (!backendPath || !backendEntry) {

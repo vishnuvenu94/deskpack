@@ -1,0 +1,17 @@
+{
+  "name": "tanstack-start-no-static-fixture",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node ./scripts/build.mjs",
+    "dev": "node ./scripts/dev.mjs"
+  },
+  "dependencies": {
+    "react": "18.3.1",
+    "@tanstack/react-start": "1.0.0"
+  },
+  "devDependencies": {
+    "vite": "5.4.0"
+  }
+}

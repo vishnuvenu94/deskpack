@@ -84,6 +84,82 @@ test("deskpack init refuses Next SSR/server runtime projects early", () => {
   assert.match(output, /static export|output:\s*"export"/i);
 });
 
+test("deskpack init refuses TanStack Start without static mode", () => {
+  const projectDir = copyFixtureToTemp("tanstack-start-no-static");
+
+  const result = runCli(["init", "--yes"], projectDir, {
+    DESKPACK_SKIP_ELECTRON_INSTALL: "1",
+  });
+  const output = commandOutput(result);
+
+  assert.notEqual(result.status, 0, output);
+  assert.match(output, /TanStack Start|SPA|prerender/i, output);
+});
+
+test("deskpack init refuses TanStack Start with runtime server routes", () => {
+  const projectDir = copyFixtureToTemp("tanstack-start-runtime-api");
+
+  const result = runCli(["init", "--yes"], projectDir, {
+    DESKPACK_SKIP_ELECTRON_INSTALL: "1",
+  });
+  const output = commandOutput(result);
+
+  assert.notEqual(result.status, 0, output);
+  assert.match(output, /server\.handlers|handlers|runtime/i, output);
+});
+
+test("deskpack build copies TanStack SPA shell dist/client to web-dist", () => {
+  const projectDir = copyFixtureToTemp("tanstack-start-spa-static");
+
+  const initResult = runCli(["init", "--yes", "--force"], projectDir, {
+    DESKPACK_SKIP_ELECTRON_INSTALL: "1",
+  });
+  assert.equal(initResult.status, 0, commandOutput(initResult));
+
+  const buildResult = runCli(["build", "--skip-package"], projectDir);
+  assert.equal(buildResult.status, 0, commandOutput(buildResult));
+
+  const webDist = path.join(projectDir, ".deskpack", "desktop", "server", "web-dist");
+  assert.ok(fs.existsSync(path.join(webDist, "_shell.html")));
+  assert.equal(fs.existsSync(path.join(webDist, "index.html")), false);
+});
+
+test("deskpack build copies TanStack prerender dist/client to web-dist", () => {
+  const projectDir = copyFixtureToTemp("tanstack-start-prerender-static");
+
+  const initResult = runCli(["init", "--yes", "--force"], projectDir, {
+    DESKPACK_SKIP_ELECTRON_INSTALL: "1",
+  });
+  assert.equal(initResult.status, 0, commandOutput(initResult));
+
+  const buildResult = runCli(["build", "--skip-package"], projectDir);
+  assert.equal(buildResult.status, 0, commandOutput(buildResult));
+
+  const webDist = path.join(projectDir, ".deskpack", "desktop", "server", "web-dist");
+  assert.ok(fs.existsSync(path.join(webDist, "index.html")));
+  assert.ok(fs.existsSync(path.join(webDist, "blog", "post", "index.html")));
+});
+
+test("deskpack build recovers Next custom distDir from stale config", () => {
+  const projectDir = copyFixtureToTemp("next-static-export-custom-distdir");
+
+  const initResult = runCli(["init", "--yes", "--force"], projectDir, {
+    DESKPACK_SKIP_ELECTRON_INSTALL: "1",
+  });
+  assert.equal(initResult.status, 0, commandOutput(initResult));
+
+  const configPath = path.join(projectDir, "deskpack.config.json");
+  const config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+  config.frontend.distDir = "out";
+  fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+
+  const buildResult = runCli(["build", "--skip-package"], projectDir);
+  assert.equal(buildResult.status, 0, commandOutput(buildResult));
+
+  const webDist = path.join(projectDir, ".deskpack", "desktop", "server", "web-dist");
+  assert.ok(fs.existsSync(path.join(webDist, "index.html")));
+});
+
 test("deskpack build --skip-package works for backend-serves-frontend topology", () => {
   const projectDir = copyFixtureToTemp("backend-serves-frontend");
 

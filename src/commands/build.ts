@@ -12,6 +12,8 @@ import {
 } from "../build/platform.js";
 import { generateElectronMain } from "../generate/electron-main.js";
 import { loadConfig } from "../config.js";
+import { detectFrontend } from "../detect/frontend.js";
+import { assertDeskpackStaticHtmlOutput } from "../build/static-output.js";
 import { log } from "../utils/logger.js";
 
 /**
@@ -32,9 +34,11 @@ export async function buildCommand(
   const targetPlatform = normalizeBuildPlatform(options.platform);
 
   if (config.topology === "ssr-framework") {
-    throw new Error(
-      "Next.js SSR/server runtime projects are not supported. Use static export (output: \"export\") before building.",
-    );
+    const detail =
+      config.topologyEvidence.warnings.length > 0
+        ? config.topologyEvidence.warnings.join(" ")
+        : "SSR/server runtime topology is not supported for deskpack static packaging.";
+    throw new Error(detail);
   }
 
   if (config.topology === "unsupported") {
@@ -100,6 +104,17 @@ export async function buildCommand(
   // 2. Copy built frontend to server bundle ---------------------------------
   let frontendDistPath = path.resolve(rootDir, config.frontend.distDir);
 
+  if (!fs.existsSync(frontendDistPath)) {
+    const detectedFrontend = detectFrontend(rootDir, config.frontend.path);
+    if (detectedFrontend && detectedFrontend.distDir !== config.frontend.distDir) {
+      const detectedDistPath = path.resolve(rootDir, detectedFrontend.distDir);
+      if (fs.existsSync(detectedDistPath)) {
+        log.info(`Resolved frontend output directory: ${detectedFrontend.distDir}`);
+        frontendDistPath = detectedDistPath;
+      }
+    }
+  }
+
   // Angular 17+ places static output inside a `browser` subdirectory.
   // If the configured distDir doesn't contain index.html at its root,
   // check for a browser/ subdirectory that does.
@@ -114,11 +129,7 @@ export async function buildCommand(
     }
   }
 
-  if (!fs.existsSync(frontendDistPath)) {
-    throw new Error(
-      `Frontend dist not found at ${frontendDistPath}. Did the build succeed?`,
-    );
-  }
+  assertDeskpackStaticHtmlOutput(frontendDistPath);
 
   copyDirSync(frontendDistPath, path.join(serverDir, "web-dist"));
 
