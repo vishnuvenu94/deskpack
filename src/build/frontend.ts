@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { DeskpackConfig } from "../types.js";
-import { execPassthrough } from "../utils/exec.js";
+import { execPassthrough, resolvePlatformCommand } from "../utils/exec.js";
 import { log } from "../utils/logger.js";
 
 /**
@@ -13,6 +13,7 @@ export async function buildFrontend(
   config: DeskpackConfig,
 ): Promise<void> {
   const pm = config.monorepo.packageManager;
+  const pmCommand = resolvePlatformCommand(pm);
   let command: string;
   let args: string[];
 
@@ -21,7 +22,7 @@ export async function buildFrontend(
     const pkgJsonPath = path.join(rootDir, config.frontend.path, "package.json");
     const pkg = JSON.parse(fs.readFileSync(pkgJsonPath, "utf-8"));
 
-    command = pm;
+    command = pmCommand;
 
     if (pm === "pnpm") {
       args = ["--filter", pkg.name as string, "run", "build"];
@@ -32,7 +33,7 @@ export async function buildFrontend(
     }
   } else {
     // Single package: run build from the frontend directory
-    command = pm;
+    command = pmCommand;
     if (config.frontend.path === ".") {
       args = ["run", "build"];
     } else {

@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import esbuild from "esbuild";
 import type { DeskpackConfig } from "../types.js";
-import { execPassthrough } from "../utils/exec.js";
+import { execPassthrough, resolvePlatformCommand } from "../utils/exec.js";
 import { log } from "../utils/logger.js";
 
 /**
@@ -112,7 +112,7 @@ async function buildNestBackend(
 
   log.step("Building NestJS backend", `${config.monorepo.packageManager} run build`);
   const exitCode = await execPassthrough(
-    config.monorepo.packageManager,
+    resolvePlatformCommand(config.monorepo.packageManager),
     ["run", "build"],
     { cwd: backendDir },
   );

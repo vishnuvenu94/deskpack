@@ -1,0 +1,21 @@
+{
+  "name": "trpc-fullstack",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build"
+  },
+  "dependencies": {
+    "@trpc/client": "^11.16.0",
+    "@trpc/react-query": "^11.16.0",
+    "@trpc/server": "^11.16.0",
+    "express": "^4.21.2",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.1",
+    "vite": "^5.4.10"
+  }
+}

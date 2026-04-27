@@ -24,10 +24,20 @@ export async function packageElectron(
 
   const platformFlag = electronBuilderPlatformFlag(targetPlatform);
   log.step("Packaging application", `electron-builder ${platformFlag}`);
+  const electronBuilderBin = path.join(
+    desktopDir,
+    "node_modules",
+    ".bin",
+    process.platform === "win32" ? "electron-builder.cmd" : "electron-builder",
+  );
+
+  if (!fs.existsSync(electronBuilderBin)) {
+    throw new Error("electron-builder binary not found. Run `deskpack init` again.");
+  }
 
   const exitCode = await execPassthrough(
-    "npx",
-    ["electron-builder", "--config", "electron-builder.yml", platformFlag],
+    electronBuilderBin,
+    ["--config", "electron-builder.yml", platformFlag],
     { cwd: desktopDir },
   );
 

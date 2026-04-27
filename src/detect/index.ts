@@ -122,7 +122,12 @@ export function detectProject(rootDir: string): ProjectConfig {
 
   // ---- Detect API prefixes for proxy ---------------------------------------
   if (backend.path.length > 0 && frontendResolved) {
-    const proxyConfig = detectApiPrefixes(rootDir, frontendResolved.path);
+    const proxyConfig = detectApiPrefixes(
+      rootDir,
+      frontendResolved.path,
+      backend.path,
+      backend.entry,
+    );
     backend.apiPrefixes = proxyConfig.prefixes;
     if (proxyConfig.proxyRewrite) {
       backend.proxyRewrite = proxyConfig.proxyRewrite;

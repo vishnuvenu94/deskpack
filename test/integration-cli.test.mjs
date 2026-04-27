@@ -72,6 +72,22 @@ test("deskpack init writes proxyRewrite for npm workspace with Vite rewrite", ()
   assert.match(mainCjs, /function applyProxyRewrite/);
 });
 
+test("deskpack init detects tRPC API prefix without Vite proxy config", () => {
+  const projectDir = copyFixtureToTemp("trpc-fullstack");
+
+  const result = runCli(["init", "--yes", "--force"], projectDir, {
+    DESKPACK_SKIP_ELECTRON_INSTALL: "1",
+  });
+
+  assert.equal(result.status, 0, commandOutput(result));
+
+  const config = JSON.parse(
+    fs.readFileSync(path.join(projectDir, "deskpack.config.json"), "utf-8"),
+  );
+  assert.ok(Array.isArray(config.backend.apiPrefixes));
+  assert.ok(config.backend.apiPrefixes.includes("/trpc"));
+});
+
 test("deskpack init refuses Next SSR/server runtime projects early", () => {
   const projectDir = copyFixtureToTemp("next-ssr-unsupported");
 

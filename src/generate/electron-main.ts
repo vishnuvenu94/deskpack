@@ -29,6 +29,7 @@ const PREFERRED_FRONTEND_PORT = ${config.frontend.devPort};
 const BACKEND_HEALTH_PATH = ${JSON.stringify(backendHealthPath)};
 const API_PROXY_PREFIXES = ${JSON.stringify(config.backend.apiPrefixes ?? ["/api"])};
 const PROXY_REWRITE = ${JSON.stringify(config.backend.proxyRewrite ?? null)};
+const BACKEND_PROXY_PREFIX = "/__deskpack_backend__";
 const WINDOW_TITLE = ${JSON.stringify(title)};
 const WINDOW_WIDTH = ${config.electron.window.width};
 const WINDOW_HEIGHT = ${config.electron.window.height};
@@ -47,6 +48,7 @@ let startupFailed = false;
 let startupStarted = false;
 let isQuitting = false;
 let activeLoadUrl = "";
+let activeRendererOrigin = "";
 let backendCrashReason = "";
 
 const MIME_TYPES = {
@@ -84,12 +86,90 @@ const MIME_TYPES = {
   ".webm": "video/webm",
 };
 
+const STATIC_HTML_CSP = [
+  "default-src 'self'",
+  "base-uri 'self'",
+  "frame-ancestors 'none'",
+  "object-src 'none'",
+  "script-src 'self' 'unsafe-inline'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob:",
+  "font-src 'self' data:",
+  "connect-src 'self' https: http://127.0.0.1:* http://localhost:*",
+].join("; ");
+
 function logInfo(message) {
   console.log("[deskpack] " + message);
 }
 
 function logWarn(message) {
   console.warn("[deskpack] " + message);
+}
+
+function parseUrl(rawUrl) {
+  try {
+    return new URL(rawUrl);
+  } catch {
+    return null;
+  }
+}
+
+function isLoopbackHostname(hostname) {
+  return hostname === "127.0.0.1" || hostname === "localhost";
+}
+
+function originFromUrl(rawUrl) {
+  const parsed = parseUrl(rawUrl);
+  return parsed ? parsed.origin : "";
+}
+
+function isAllowedNavigationUrl(rawUrl) {
+  const parsed = parseUrl(rawUrl);
+  if (!parsed) return false;
+  if (parsed.protocol !== "http:") return false;
+  if (!isLoopbackHostname(parsed.hostname)) return false;
+  return parsed.origin === activeRendererOrigin;
+}
+
+function isAllowedExternalUrl(rawUrl) {
+  const parsed = parseUrl(rawUrl);
+  if (!parsed) return false;
+  return parsed.protocol === "https:" || parsed.protocol === "mailto:";
+}
+
+function parseLoopbackOrigin(rawValue) {
+  if (!rawValue || typeof rawValue !== "string") return "";
+  const parsed = parseUrl(rawValue);
+  if (!parsed || parsed.protocol !== "http:") return "";
+  if (!isLoopbackHostname(parsed.hostname)) return "";
+  return parsed.origin;
+}
+
+function mergeVaryHeader(existing, value) {
+  const current = Array.isArray(existing) ? existing.join(", ") : (existing || "");
+  const values = current
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+
+  if (!values.some((entry) => entry.toLowerCase() === value.toLowerCase())) {
+    values.push(value);
+  }
+
+  return [values.join(", ")];
+}
+
+function findHeaderName(headers, targetName) {
+  const lowerTarget = targetName.toLowerCase();
+  return Object.keys(headers).find((name) => name.toLowerCase() === lowerTarget) || null;
+}
+
+function setHeaderValue(headers, name, value) {
+  const existingName = findHeaderName(headers, name);
+  if (existingName && existingName !== name) {
+    delete headers[existingName];
+  }
+  headers[name] = value;
 }
 
 function uniqueProbePaths(paths) {
@@ -337,7 +417,17 @@ function sendStaticFile(filePath, response) {
       response.end("Server error");
       return;
     }
-    response.writeHead(200, { "Content-Type": contentType });
+
+    const headers = {
+      "Content-Type": contentType,
+      "X-Content-Type-Options": "nosniff",
+    };
+
+    if (extension === ".html") {
+      headers["Content-Security-Policy"] = STATIC_HTML_CSP;
+    }
+
+    response.writeHead(200, headers);
     response.end(content);
   });
 }
@@ -418,14 +508,61 @@ function applyProxyRewrite(urlPath) {
   return urlPath;
 }
 
+function stripBackendProxyPrefix(urlPath) {
+  if (!urlPath.startsWith(BACKEND_PROXY_PREFIX)) return urlPath;
+  const stripped = urlPath.slice(BACKEND_PROXY_PREFIX.length);
+  if (!stripped) return "/";
+  return stripped.startsWith("/") ? stripped : "/" + stripped;
+}
+
 function proxyApiRequest(request, response, backendPort) {
   const proxiedPath = applyProxyRewrite(request.url);
+  proxyBackendRequest(request, response, backendPort, proxiedPath);
+}
+
+function proxyAbsoluteBackendRequest(request, response, backendPort) {
+  const proxiedPath = stripBackendProxyPrefix(request.url);
+  proxyBackendRequest(request, response, backendPort, proxiedPath);
+}
+
+function withRendererCorsHeaders(headers) {
+  const nextHeaders = { ...headers };
+  if (!activeRendererOrigin) return nextHeaders;
+
+  setHeaderValue(nextHeaders, "access-control-allow-origin", [activeRendererOrigin]);
+  setHeaderValue(nextHeaders, "vary", mergeVaryHeader(nextHeaders["vary"], "Origin"));
+  setHeaderValue(
+    nextHeaders,
+    "access-control-allow-methods",
+    ["GET, POST, PUT, DELETE, PATCH, OPTIONS"],
+  );
+  setHeaderValue(nextHeaders, "access-control-allow-headers", [
+    "Content-Type, Authorization, X-Requested-With, Accept, trpc-accept, x-trpc-source",
+  ]);
+
+  return nextHeaders;
+}
+
+function proxyBackendRequest(request, response, backendPort, proxiedPath) {
+  const forwardedHeaders = { ...request.headers };
+  delete forwardedHeaders.host;
+  delete forwardedHeaders.connection;
+  delete forwardedHeaders["keep-alive"];
+  delete forwardedHeaders["proxy-connection"];
+  delete forwardedHeaders["transfer-encoding"];
+  delete forwardedHeaders.upgrade;
+  delete forwardedHeaders["content-length"];
+
   const options = {
     hostname: "127.0.0.1",
     port: backendPort,
     path: proxiedPath,
     method: request.method,
-    headers: { ...request.headers, "X-Forwarded-For": "127.0.0.1" },
+    headers: {
+      ...forwardedHeaders,
+      host: "127.0.0.1:" + backendPort,
+      "X-Forwarded-For": "127.0.0.1",
+    },
   };
 
   const proxyRequest = http.request(options, (proxyResponse) => {
@@ -434,7 +571,7 @@ function proxyApiRequest(request, response, backendPort) {
       response.end("Bad Gateway");
       return;
     }
-    response.writeHead(proxyResponse.statusCode, proxyResponse.headers);
+    response.writeHead(proxyResponse.statusCode, withRendererCorsHeaders(proxyResponse.headers));
     proxyResponse.pipe(response);
   });
 
@@ -469,6 +606,11 @@ async function startStaticServer(preferredPort, backendPort) {
 
         if (API_PROXY_PREFIXES.some((prefix) => pathname.startsWith(prefix))) {
           proxyApiRequest(request, response, backendPort);
+          return;
+        }
+
+        if (pathname.startsWith(BACKEND_PROXY_PREFIX)) {
+          proxyAbsoluteBackendRequest(request, response, backendPort);
           return;
         }
       }
@@ -549,6 +691,11 @@ function createWindow(url) {
   }
 
   activeLoadUrl = url;
+  activeRendererOrigin = originFromUrl(url);
+  if (!activeRendererOrigin) {
+    throw new Error("Could not determine renderer origin from startup URL.");
+  }
+
   mainWindow = new BrowserWindow({
     width: WINDOW_WIDTH,
     height: WINDOW_HEIGHT,
@@ -559,15 +706,35 @@ function createWindow(url) {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
-      webSecurity: false,
+      sandbox: true,
+      webSecurity: true,
     },
   });
 
   mainWindow.loadURL(url).catch((error) => {
     showStartupError("Failed to load application URL.\\n\\n" + toErrorMessage(error));
   });
+
+  mainWindow.webContents.on("will-navigate", (event, targetUrl) => {
+    if (isAllowedNavigationUrl(targetUrl)) return;
+    event.preventDefault();
+    logWarn("Blocked navigation to disallowed URL: " + targetUrl);
+  });
+
+  mainWindow.webContents.on("will-redirect", (event, targetUrl) => {
+    if (isAllowedNavigationUrl(targetUrl)) return;
+    event.preventDefault();
+    logWarn("Blocked redirect to disallowed URL: " + targetUrl);
+  });
+
   mainWindow.webContents.setWindowOpenHandler(({ url: targetUrl }) => {
-    shell.openExternal(targetUrl);
+    if (!isAllowedExternalUrl(targetUrl)) {
+      logWarn("Blocked external URL: " + targetUrl);
+      return { action: "deny" };
+    }
+    shell.openExternal(targetUrl).catch((error) => {
+      logWarn("Failed to open external URL: " + toErrorMessage(error));
+    });
     return { action: "deny" };
   });
 
@@ -586,13 +753,33 @@ function assertSupportedTopology() {
   }
 }
 
+function installPermissionGuards() {
+  const defaultSession = session.defaultSession;
+
+  defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
+    logWarn("Denied permission request: " + permission);
+    callback(false);
+  });
+
+  if (typeof defaultSession.setPermissionCheckHandler === "function") {
+    defaultSession.setPermissionCheckHandler(() => false);
+  }
+}
+
+function corsOriginFromDetails(details) {
+  return (
+    parseLoopbackOrigin(details.initiator) ||
+    parseLoopbackOrigin(details.referrer) ||
+    activeRendererOrigin
+  );
+}
+
 function setupApiInterceptor(actualBackendPort) {
   const devBackendOrigin = "http://localhost:" + PREFERRED_API_PORT;
   const actualBackendOrigin = "http://127.0.0.1:" + actualBackendPort;
+  const backendOrigins = [...new Set([devBackendOrigin, actualBackendOrigin])];
 
-  // In production (or when ports differ), redirect absolute requests
-  // from the hardcoded dev URL to the actual backend port.
-  if (!isDev || PREFERRED_API_PORT !== actualBackendPort) {
+  if (PREFERRED_API_PORT !== actualBackendPort) {
     const filter = { urls: [devBackendOrigin + "/*"] };
     session.defaultSession.webRequest.onBeforeRequest(filter, (details, callback) => {
       const redirectURL = details.url.replace(devBackendOrigin, actualBackendOrigin);
@@ -604,15 +791,22 @@ function setupApiInterceptor(actualBackendPort) {
   // Fix CORS — allow the page origin through on all backend responses.
   // This handles the localhost vs 127.0.0.1 mismatch that blocks
   // cross-origin requests from the Electron renderer.
-  const corsFilter = { urls: [
-    actualBackendOrigin + "/*",
-    devBackendOrigin + "/*",
-  ] };
+  const corsFilter = { urls: backendOrigins.map((origin) => origin + "/*") };
   session.defaultSession.webRequest.onHeadersReceived(corsFilter, (details, callback) => {
     const headers = { ...details.responseHeaders };
-    headers["access-control-allow-origin"] = ["*"];
-    headers["access-control-allow-methods"] = ["GET, POST, PUT, DELETE, PATCH, OPTIONS"];
-    headers["access-control-allow-headers"] = ["*"];
+    const corsOrigin = corsOriginFromDetails(details);
+    if (corsOrigin) {
+      setHeaderValue(headers, "access-control-allow-origin", [corsOrigin]);
+      setHeaderValue(headers, "vary", mergeVaryHeader(headers["vary"], "Origin"));
+      setHeaderValue(
+        headers,
+        "access-control-allow-methods",
+        ["GET, POST, PUT, DELETE, PATCH, OPTIONS"],
+      );
+      setHeaderValue(headers, "access-control-allow-headers", [
+        "Content-Type, Authorization, X-Requested-With, Accept, trpc-accept, x-trpc-source",
+      ]);
+    }
     callback({ responseHeaders: headers });
   });
 
@@ -686,6 +880,7 @@ app.whenReady().then(async () => {
 
   try {
     assertSupportedTopology();
+    installPermissionGuards();
     const loadUrl = await resolveLoadUrl();
     createWindow(loadUrl);
   } catch (error) {

@@ -199,7 +199,12 @@ export interface ApiProxyConfig {
  * the backend during development, plus an optional `proxyRewrite` string
  * that the desktop proxy should apply to mirror the dev server behaviour.
  */
-export function detectApiPrefixes(rootDir: string, searchPath: string): ApiProxyConfig {
+export function detectApiPrefixes(
+  rootDir: string,
+  searchPath: string,
+  backendPath = "",
+  backendEntry = "",
+): ApiProxyConfig {
   const fullPath = path.resolve(rootDir, searchPath);
   const prefixes = new Set<string>();
   let proxyRewrite: string | undefined;
@@ -261,11 +266,115 @@ export function detectApiPrefixes(rootDir: string, searchPath: string): ApiProxy
     }
   }
 
+  for (const prefix of detectRpcApiPrefixes(rootDir, searchPath, backendPath, backendEntry)) {
+    prefixes.add(prefix);
+  }
+
   if (prefixes.size === 0) {
     return { prefixes: ["/api"] };
   }
 
-  return { prefixes: [...prefixes], proxyRewrite };
+  return { prefixes: [...prefixes].sort(), proxyRewrite };
+}
+
+function detectRpcApiPrefixes(
+  rootDir: string,
+  frontendPath: string,
+  backendPath: string,
+  backendEntry: string,
+): string[] {
+  const detected = new Set<string>();
+
+  const frontendDir = path.resolve(rootDir, frontendPath);
+  for (const filePath of collectCodeFiles(frontendDir, [])) {
+    const content = fs.readFileSync(filePath, "utf-8");
+    for (const prefix of extractRpcClientPrefixes(content)) {
+      detected.add(prefix);
+    }
+  }
+
+  if (backendPath) {
+    const backendDir = path.resolve(rootDir, backendPath);
+    const entryAbs = backendEntry ? path.resolve(rootDir, backendEntry) : "";
+    const seeds = entryAbs ? [entryAbs] : [];
+    for (const filePath of collectCodeFiles(backendDir, seeds)) {
+      const content = fs.readFileSync(filePath, "utf-8");
+      for (const prefix of extractRpcServerPrefixes(content)) {
+        detected.add(prefix);
+      }
+    }
+  }
+
+  return [...detected];
+}
+
+function collectCodeFiles(baseDir: string, seedFiles: string[]): string[] {
+  const files = new Set<string>();
+
+  for (const seed of seedFiles) {
+    if (fs.existsSync(seed) && fs.statSync(seed).isFile()) {
+      files.add(seed);
+    }
+  }
+
+  const visit = (dirPath: string): void => {
+    if (!fs.existsSync(dirPath)) return;
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(dirPath, { withFileTypes: true });
+    } catch {
+      return;
+    }
+
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        if (
+          entry.name.startsWith(".") ||
+          ["node_modules", "dist", "build", "coverage", ".next"].includes(entry.name)
+        ) {
+          continue;
+        }
+        visit(path.join(dirPath, entry.name));
+        continue;
+      }
+
+      if (!entry.isFile()) continue;
+      if (!/\.(ts|tsx|js|jsx|mjs|cjs)$/.test(entry.name)) continue;
+      files.add(path.join(dirPath, entry.name));
+    }
+  };
+
+  visit(baseDir);
+  return [...files];
+}
+
+function extractRpcClientPrefixes(content: string): string[] {
+  const detected = new Set<string>();
+  const httpBatchLinkRegex =
+    /httpBatchLink\s*\(\s*\{[\s\S]{0,1200}?url\s*:\s*["'`](?:https?:\/\/[^/"'`]+)?(\/[a-zA-Z][a-zA-Z0-9_/-]*)/g;
+  const trpcClientRegex =
+    /createTRPCClient\s*\(\s*\{[\s\S]{0,1200}?url\s*:\s*["'`](?:https?:\/\/[^/"'`]+)?(\/[a-zA-Z][a-zA-Z0-9_/-]*)/g;
+
+  for (const match of content.matchAll(httpBatchLinkRegex)) {
+    if (match[1]) detected.add(match[1]);
+  }
+  for (const match of content.matchAll(trpcClientRegex)) {
+    if (match[1]) detected.add(match[1]);
+  }
+
+  return [...detected];
+}
+
+function extractRpcServerPrefixes(content: string): string[] {
+  const detected = new Set<string>();
+  const expressTrpcRegex =
+    /\.use\s*\(\s*["'`](\/[a-zA-Z][a-zA-Z0-9_/-]*)["'`]\s*,[\s\S]{0,300}?createExpressMiddleware\s*\(/g;
+
+  for (const match of content.matchAll(expressTrpcRegex)) {
+    if (match[1]) detected.add(match[1]);
+  }
+
+  return [...detected];
 }
 
 function determineDistDir(

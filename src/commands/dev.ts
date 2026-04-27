@@ -5,8 +5,15 @@ import chalk from "chalk";
 import { loadConfig } from "../config.js";
 import { generateElectronMain } from "../generate/electron-main.js";
 import { findAvailablePort, isPortInUse, waitForHttpEndpoint } from "../utils/net.js";
+import { resolvePlatformCommand } from "../utils/exec.js";
 import { log } from "../utils/logger.js";
 import type { DeskpackConfig } from "../types.js";
+
+export interface FrontendDevLaunchPlan {
+  port: number;
+  requiresSpawn: boolean;
+  reusedPreferred: boolean;
+}
 
 /**
  * `deskpack dev`
@@ -65,18 +72,17 @@ export async function devCommand(rootDir: string): Promise<void> {
 
   let devProcesses: ChildProcess[] = [];
 
-  if (!frontendAlreadyRunning) {
-    const selected = await findAvailablePort(frontendPort);
-    frontendPort = selected.port;
-    if (!selected.reusedPreferred) {
-      log.warn(
-        `Frontend port ${config.frontend.devPort} is busy. Falling back to ${frontendPort}.`,
-      );
-    }
+  const frontendPlan = await planFrontendDevLaunch(frontendPort, frontendAlreadyRunning);
+  frontendPort = frontendPlan.port;
+  if (!frontendPlan.reusedPreferred) {
+    log.warn(
+      `Frontend port ${config.frontend.devPort} is busy. Starting this project on ${frontendPort} instead.`,
+    );
   }
 
-  if (!frontendAlreadyRunning || (hasBackend && !backendAlreadyRunning)) {
+  if (frontendPlan.requiresSpawn || (hasBackend && !backendAlreadyRunning)) {
     const pm = config.monorepo.packageManager;
+    const pmCommand = resolvePlatformCommand(pm);
 
     if (config.monorepo.type !== "none") {
       const frontendPkgPath = path.join(rootDir, config.frontend.path, "package.json");
@@ -84,7 +90,7 @@ export async function devCommand(rootDir: string): Promise<void> {
         ? path.join(rootDir, config.backend.path, "package.json")
         : "";
 
-      if (!frontendAlreadyRunning) {
+      if (frontendPlan.requiresSpawn) {
         const frontendPkg = JSON.parse(fs.readFileSync(frontendPkgPath, "utf-8")) as {
           name: string;
           scripts?: Record<string, string>;
@@ -92,19 +98,19 @@ export async function devCommand(rootDir: string): Promise<void> {
         const frontendScript = frontendPkg.scripts?.dev ? "dev" : "start";
         log.step("Starting frontend dev…", `${pm} run ${frontendScript}`);
 
-        let args: string[];
-        if (pm === "pnpm") {
-          args = ["--filter", frontendPkg.name, "run", frontendScript];
-        } else if (pm === "yarn") {
-          args = ["workspace", frontendPkg.name, "run", frontendScript];
-        } else {
-          args = ["--workspace", config.frontend.path, "run", frontendScript];
-        }
+        const args = buildWorkspaceFrontendCommandArgs(
+          pm,
+          frontendPkg.name,
+          config.frontend.path,
+          frontendScript,
+          config.frontend.framework,
+          frontendPort,
+        );
 
-        const feProcess = spawn(pm, args, {
+        const feProcess = spawn(pmCommand, args, {
           cwd: rootDir,
           stdio: "pipe",
-          shell: true,
+          shell: false,
           env: {
             ...process.env,
             PORT: String(frontendPort),
@@ -133,10 +139,10 @@ export async function devCommand(rootDir: string): Promise<void> {
           args = ["--workspace", config.backend.path, "run", backendScript];
         }
 
-        const beProcess = spawn(pm, args, {
+        const beProcess = spawn(pmCommand, args, {
           cwd: rootDir,
           stdio: "pipe",
-          shell: true,
+          shell: false,
           env: {
             ...process.env,
             PORT: String(backendPort),
@@ -157,20 +163,29 @@ export async function devCommand(rootDir: string): Promise<void> {
       ) as { scripts?: Record<string, string> };
       const frontendScript = frontendPkg.scripts?.dev ? "dev" : "start";
 
-      if (separateDevPackages && !frontendAlreadyRunning) {
+      if (separateDevPackages && frontendPlan.requiresSpawn) {
         log.step("Starting frontend dev…", `${pm} run ${frontendScript}`);
 
-        const frontendProcess = spawn(pm, ["run", frontendScript], {
-          cwd: frontendCwd,
-          stdio: "pipe",
-          shell: true,
-          env: {
-            ...process.env,
-            PORT: String(frontendPort),
-            DESKPACK_FRONTEND_PORT: String(frontendPort),
-            DESKPACK_BACKEND_PORT: hasBackend ? String(backendPort) : "",
+        const frontendProcess = spawn(
+          pmCommand,
+          buildProjectFrontendCommandArgs(
+            pm,
+            frontendScript,
+            config.frontend.framework,
+            frontendPort,
+          ),
+          {
+            cwd: frontendCwd,
+            stdio: "pipe",
+            shell: false,
+            env: {
+              ...process.env,
+              PORT: String(frontendPort),
+              DESKPACK_FRONTEND_PORT: String(frontendPort),
+              DESKPACK_BACKEND_PORT: hasBackend ? String(backendPort) : "",
+            },
           },
-        });
+        );
         frontendProcess.stdout?.on("data", (data: Buffer) => process.stdout.write(data));
         frontendProcess.stderr?.on("data", (data: Buffer) => process.stderr.write(data));
         devProcesses.push(frontendProcess);
@@ -188,10 +203,10 @@ export async function devCommand(rootDir: string): Promise<void> {
 
         log.step("Starting backend dev…", `${pm} run ${backendScript}`);
 
-        const backendProcess = spawn(pm, ["run", backendScript], {
+        const backendProcess = spawn(pmCommand, ["run", backendScript], {
           cwd: backendCwd,
           stdio: "pipe",
-          shell: true,
+          shell: false,
           env: {
             ...process.env,
             PORT: String(backendPort),
@@ -203,21 +218,30 @@ export async function devCommand(rootDir: string): Promise<void> {
         devProcesses.push(backendProcess);
       }
 
-      if (!separateDevPackages && (!frontendAlreadyRunning || (hasBackend && !backendAlreadyRunning))) {
+      if (!separateDevPackages && (frontendPlan.requiresSpawn || (hasBackend && !backendAlreadyRunning))) {
         const label = hasBackend ? "Starting dev servers…" : "Starting frontend dev…";
         log.step(label, `${pm} run ${frontendScript}`);
 
-        const devProcess = spawn(pm, ["run", frontendScript], {
-          cwd: frontendCwd,
-          stdio: "pipe",
-          shell: true,
-          env: {
-            ...process.env,
-            PORT: String(frontendPort),
-            DESKPACK_FRONTEND_PORT: String(frontendPort),
-            DESKPACK_BACKEND_PORT: hasBackend ? String(backendPort) : "",
+        const devProcess = spawn(
+          pmCommand,
+          buildProjectFrontendCommandArgs(
+            pm,
+            frontendScript,
+            config.frontend.framework,
+            frontendPort,
+          ),
+          {
+            cwd: frontendCwd,
+            stdio: "pipe",
+            shell: false,
+            env: {
+              ...process.env,
+              PORT: String(frontendPort),
+              DESKPACK_FRONTEND_PORT: String(frontendPort),
+              DESKPACK_BACKEND_PORT: hasBackend ? String(backendPort) : "",
+            },
           },
-        });
+        );
         devProcess.stdout?.on("data", (data: Buffer) => process.stdout.write(data));
         devProcess.stderr?.on("data", (data: Buffer) => process.stderr.write(data));
         devProcesses.push(devProcess);
@@ -311,4 +335,74 @@ export async function devCommand(rootDir: string): Promise<void> {
     }
     process.exit(0);
   });
+}
+
+export async function planFrontendDevLaunch(
+  preferredPort: number,
+  preferredPortInUse: boolean,
+  allocatePort: (preferredPort: number) => Promise<{ port: number; reusedPreferred: boolean }> = findAvailablePort,
+): Promise<FrontendDevLaunchPlan> {
+  if (!preferredPortInUse) {
+    return {
+      port: preferredPort,
+      requiresSpawn: true,
+      reusedPreferred: true,
+    };
+  }
+
+  const selected = await allocatePort(preferredPort);
+  return {
+    port: selected.port,
+    requiresSpawn: true,
+    reusedPreferred: false,
+  };
+}
+
+export function buildProjectFrontendCommandArgs(
+  packageManager: DeskpackConfig["monorepo"]["packageManager"],
+  scriptName: string,
+  framework: DeskpackConfig["frontend"]["framework"],
+  port: number,
+): string[] {
+  const baseArgs = ["run", scriptName];
+  return appendFrontendRuntimeArgs(baseArgs, packageManager, framework, port);
+}
+
+export function buildWorkspaceFrontendCommandArgs(
+  packageManager: DeskpackConfig["monorepo"]["packageManager"],
+  packageName: string,
+  workspacePath: string,
+  scriptName: string,
+  framework: DeskpackConfig["frontend"]["framework"],
+  port: number,
+): string[] {
+  const baseArgs =
+    packageManager === "pnpm"
+      ? ["--filter", packageName, "run", scriptName]
+      : packageManager === "yarn"
+        ? ["workspace", packageName, "run", scriptName]
+        : ["--workspace", workspacePath, "run", scriptName];
+
+  return appendFrontendRuntimeArgs(baseArgs, packageManager, framework, port);
+}
+
+function appendFrontendRuntimeArgs(
+  baseArgs: string[],
+  packageManager: DeskpackConfig["monorepo"]["packageManager"],
+  framework: DeskpackConfig["frontend"]["framework"],
+  port: number,
+): string[] {
+  const runtimeArgs = frontendRuntimeArgs(framework, port);
+  if (runtimeArgs.length === 0) return baseArgs;
+  return packageManager === "yarn"
+    ? [...baseArgs, ...runtimeArgs]
+    : [...baseArgs, "--", ...runtimeArgs];
+}
+
+function frontendRuntimeArgs(
+  framework: DeskpackConfig["frontend"]["framework"],
+  port: number,
+): string[] {
+  if (framework !== "vite") return [];
+  return ["--host", "127.0.0.1", "--port", String(port), "--strictPort"];
 }

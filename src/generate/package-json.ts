@@ -3,7 +3,10 @@ import type { DeskpackConfig } from "../types.js";
 /**
  * Generate a `package.json` for the `.deskpack/desktop/` Electron project.
  */
-export function generateDesktopPackageJson(config: DeskpackConfig): string {
+export function generateDesktopPackageJson(
+  config: DeskpackConfig,
+  nativeDepVersions: Record<string, string> = {},
+): string {
   const safeName = config.name
     .toLowerCase()
     .replace(/[^a-z0-9-]/g, "-")
@@ -12,7 +15,10 @@ export function generateDesktopPackageJson(config: DeskpackConfig): string {
 
   const nativeDeps = config.backend.nativeDeps.reduce(
     (acc, dep) => {
-      acc[dep] = "*";
+      const resolvedVersion = nativeDepVersions[dep];
+      if (resolvedVersion) {
+        acc[dep] = resolvedVersion;
+      }
       return acc;
     },
     {} as Record<string, string>,

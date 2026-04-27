@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { createRequire } from "node:module";
 import prompts from "prompts";
 import chalk from "chalk";
 import { detectProject } from "../detect/index.js";
@@ -7,7 +8,7 @@ import { generateElectronMain } from "../generate/electron-main.js";
 import { generateElectronBuilderConfig } from "../generate/electron-config.js";
 import { generateDesktopPackageJson } from "../generate/package-json.js";
 import { topologyDescription } from "../detect/topology.js";
-import { exec } from "../utils/exec.js";
+import { exec, resolvePlatformCommand } from "../utils/exec.js";
 import { log } from "../utils/logger.js";
 import type { DeskpackConfig } from "../types.js";
 
@@ -208,7 +209,10 @@ export async function initCommand(
 
   fs.writeFileSync(
     path.join(desktopDir, "package.json"),
-    generateDesktopPackageJson(config),
+    generateDesktopPackageJson(
+      config,
+      resolveNativeDependencyVersions(rootDir, config.backend.path, config.backend.nativeDeps),
+    ),
   );
   log.success(`Created ${chalk.cyan(".deskpack/desktop/package.json")}`);
 
@@ -230,7 +234,9 @@ export async function initCommand(
   } else {
     const spinner = log.spinner("Installing Electron (this may take a moment)…");
     try {
-      const result = await exec("npm", ["install"], { cwd: desktopDir });
+      const result = await exec(resolvePlatformCommand("npm"), ["install"], {
+        cwd: desktopDir,
+      });
       if (result.exitCode !== 0) {
         spinner.fail("Failed to install Electron");
         log.dim(result.stderr);
@@ -260,4 +266,71 @@ function toTitleCase(str: string): string {
 
 function isValidAppId(value: string): boolean {
   return APP_ID_PATTERN.test(value) && value.split(".").length >= 2;
+}
+
+function resolveNativeDependencyVersions(
+  rootDir: string,
+  backendPath: string,
+  nativeDeps: string[],
+): Record<string, string> {
+  const versions: Record<string, string> = {};
+  if (nativeDeps.length === 0) return versions;
+
+  const manifestPaths = [
+    path.join(rootDir, backendPath || ".", "package.json"),
+    path.join(rootDir, "package.json"),
+  ];
+
+  for (const manifestPath of manifestPaths) {
+    if (!fs.existsSync(manifestPath)) continue;
+
+    const pkg = JSON.parse(fs.readFileSync(manifestPath, "utf-8")) as {
+      dependencies?: Record<string, string>;
+      devDependencies?: Record<string, string>;
+      optionalDependencies?: Record<string, string>;
+    };
+
+    const allDeps = {
+      ...pkg.dependencies,
+      ...pkg.optionalDependencies,
+      ...pkg.devDependencies,
+    };
+
+    for (const dep of nativeDeps) {
+      if (!versions[dep] && typeof allDeps[dep] === "string" && allDeps[dep].trim().length > 0) {
+        versions[dep] = allDeps[dep];
+      }
+    }
+  }
+
+  for (const dep of nativeDeps) {
+    if (versions[dep]) continue;
+
+    for (const manifestPath of manifestPaths) {
+      if (!fs.existsSync(manifestPath)) continue;
+      try {
+        const requireFrom = createRequire(manifestPath);
+        const packageJsonPath = requireFrom.resolve(`${dep}/package.json`);
+        const installed = JSON.parse(fs.readFileSync(packageJsonPath, "utf-8")) as {
+          version?: string;
+        };
+        if (installed.version) {
+          versions[dep] = installed.version;
+          break;
+        }
+      } catch {
+        // Try the next manifest root.
+      }
+    }
+  }
+
+  const unresolved = nativeDeps.filter((dep) => !versions[dep]);
+  if (unresolved.length > 0) {
+    log.warn(
+      `Could not resolve pinned versions for native dependencies: ${unresolved.join(", ")}`,
+    );
+    log.dim("  These dependencies were omitted from .deskpack/desktop/package.json.");
+  }
+
+  return versions;
 }

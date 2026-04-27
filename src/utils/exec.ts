@@ -7,6 +7,17 @@ export interface ExecResult {
 }
 
 /**
+ * Resolve CLI command names for the current platform.
+ * On Windows, package manager binaries are exposed as *.cmd shims.
+ */
+export function resolvePlatformCommand(command: string): string {
+  if (process.platform !== "win32") return command;
+  if (/[\\/]/.test(command)) return command;
+  if (/\.(cmd|exe|bat|com)$/i.test(command)) return command;
+  return `${command}.cmd`;
+}
+
+/**
  * Execute a command, capture its output, and return when it exits.
  */
 export function exec(
@@ -17,7 +28,7 @@ export function exec(
   return new Promise((resolve, reject) => {
     const proc = spawn(command, args, {
       stdio: ["ignore", "pipe", "pipe"],
-      shell: true,
+      shell: false,
       ...options,
     });
 
@@ -50,7 +61,7 @@ export function execPassthrough(
   return new Promise((resolve, reject) => {
     const proc = spawn(command, args, {
       stdio: "inherit",
-      shell: true,
+      shell: false,
       ...options,
     });
 

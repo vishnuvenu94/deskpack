@@ -55,6 +55,11 @@ test("detects monorepo Vite proxy rewrite", () => {
   assert.equal(project.backend.proxyRewrite, "/api");
 });
 
+test("detects tRPC API prefix when Vite proxy config is absent", () => {
+  const project = detectProject(fixturePath("trpc-fullstack"));
+  assert.ok(project.backend.apiPrefixes?.includes("/trpc"));
+});
+
 test("detects native backend dependencies", () => {
   const project = detectProject(fixturePath("native-dependency"));
   assert.ok(project.backend.nativeDeps.includes("better-sqlite3"));

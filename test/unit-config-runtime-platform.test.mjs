@@ -63,6 +63,24 @@ test("generated electron runtime includes single-instance + hardening logic", ()
   assert.match(runtime, /requestSingleInstanceLock/);
   assert.match(runtime, /resolvePort/);
   assert.match(runtime, /serveStaticRequest/);
+  assert.match(runtime, /sandbox:\s*true/);
+  assert.match(runtime, /webSecurity:\s*true/);
+  assert.match(runtime, /installPermissionGuards/);
+  assert.match(runtime, /Blocked navigation to disallowed URL/);
+  assert.match(runtime, /isAllowedExternalUrl/);
+  assert.match(runtime, /access-control-allow-origin/);
+  assert.match(runtime, /BACKEND_PROXY_PREFIX = "\/__deskpack_backend__"/);
+  assert.match(runtime, /proxyAbsoluteBackendRequest/);
+  assert.match(runtime, /withRendererCorsHeaders/);
+  assert.match(runtime, /TOPOLOGY === "frontend-static-separate"/);
+  assert.match(runtime, /connect-src 'self' https: http:\/\/127\.0\.0\.1:\* http:\/\/localhost:\*/);
+  assert.match(runtime, /trpc-accept, x-trpc-source/);
+  assert.match(runtime, /function findHeaderName/);
+  assert.match(runtime, /function setHeaderValue/);
+  assert.match(runtime, /if \(PREFERRED_API_PORT !== actualBackendPort\)/);
+  assert.doesNotMatch(runtime, /usePackagedStaticAbsoluteProxy/);
+  assert.doesNotMatch(runtime, /access-control-allow-origin"\]\s*=\s*\["\*"\]/);
+  assert.doesNotMatch(runtime, /webSecurity:\s*false/);
   assert.match(runtime, /\[deskpack\]/);
   assert.doesNotMatch(runtime, /shipdesk/i);
 });
@@ -118,6 +136,12 @@ test("generated electron runtime includes API proxy for frontend-static-separate
   const runtime = generateElectronMain(config);
   assert.match(runtime, /API_PROXY_PREFIXES/);
   assert.match(runtime, /proxyApiRequest/);
+  assert.match(runtime, /delete forwardedHeaders\.host/);
+  assert.match(runtime, /response\.writeHead\(proxyResponse\.statusCode, withRendererCorsHeaders\(proxyResponse\.headers\)\)/);
+  assert.match(runtime, /setHeaderValue\(headers, "access-control-allow-origin"/);
+  assert.match(runtime, /TOPOLOGY === "frontend-static-separate"/);
+  assert.match(runtime, /if \(PREFERRED_API_PORT !== actualBackendPort\)/);
+  assert.doesNotMatch(runtime, /logInfo\("Proxying "/);
   assert.match(runtime, /startBundledBackend\(PREFERRED_API_PORT\)/);
   assert.match(runtime, /startStaticServer\(PREFERRED_FRONTEND_PORT, backendPort\)/);
 });
@@ -181,4 +205,18 @@ test("loadConfig defaults apiPrefixes to [\"/api\"] when missing", () => {
 
   const loaded = loadConfig(tmpDir);
   assert.deepEqual(loaded.backend.apiPrefixes, ["/api"]);
+});
+
+test("loadConfig rejects paths that escape the project root", () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "deskpack-config-test-"));
+  const configPath = path.join(tmpDir, "deskpack.config.json");
+
+  const config = sampleConfig();
+  config.frontend.distDir = "../outside-dist";
+  fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+
+  assert.throws(
+    () => loadConfig(tmpDir),
+    /frontend\.distDir resolves outside the project root/i,
+  );
 });
