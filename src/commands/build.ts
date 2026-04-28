@@ -5,6 +5,7 @@ import { buildFrontend } from "../build/frontend.js";
 import { bundleBackend } from "../build/backend.js";
 import { copyRuntimeDependencies } from "../build/runtime-deps.js";
 import { copyNextStandaloneRuntime } from "../build/next-runtime.js";
+import { copyDatabaseAssets } from "../build/database.js";
 import { packageElectron } from "../build/package.js";
 import {
   inspectPlatformBuild,
@@ -109,6 +110,7 @@ export async function buildCommand(
 
   if (config.topology === "next-standalone-runtime") {
     copyNextStandaloneRuntime(rootDir, config, serverDir);
+    copyDatabaseAssets(rootDir, config, serverDir);
 
     fs.writeFileSync(
       path.join(desktopDir, "main.cjs"),
@@ -187,6 +189,7 @@ export async function buildCommand(
     await bundleBackend(rootDir, config, serverDir);
     copyRuntimeDependencies(rootDir, config, serverDir);
   }
+  copyDatabaseAssets(rootDir, config, serverDir);
 
   // 4. Regenerate Electron main (in case config changed) --------------------
   fs.writeFileSync(

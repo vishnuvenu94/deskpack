@@ -73,6 +73,45 @@ test("detects tRPC API prefix when Vite proxy config is absent", () => {
 test("detects native backend dependencies", () => {
   const project = detectProject(fixturePath("native-dependency"));
   assert.ok(project.backend.nativeDeps.includes("better-sqlite3"));
+  assert.equal(project.database?.provider, "sqlite");
+  assert.equal(project.database?.driver, "better-sqlite3");
+});
+
+test("detects managed SQLite template database", () => {
+  const project = detectProject(fixturePath("sqlite-managed-static"));
+  assert.equal(project.database?.provider, "sqlite");
+  assert.equal(project.database?.mode, "managed-local");
+  assert.equal(project.database?.driver, "better-sqlite3");
+  assert.equal(project.database?.templatePath, "data/seed.db");
+});
+
+test("detects Prisma SQLite migrations", () => {
+  const project = detectProject(fixturePath("prisma-sqlite"));
+  assert.equal(project.database?.driver, "prisma");
+  assert.equal(project.database?.migrations?.tool, "prisma");
+  assert.equal(project.database?.migrations?.path, "prisma/migrations");
+  assert.equal(project.database?.migrations?.autoRun, false);
+});
+
+test("detects Drizzle SQLite migrations", () => {
+  const project = detectProject(fixturePath("drizzle-sqlite"));
+  assert.equal(project.database?.driver, "drizzle");
+  assert.equal(project.database?.migrations?.tool, "drizzle");
+  assert.equal(project.database?.migrations?.path, "drizzle");
+});
+
+test("does not create managed database config for PostgreSQL", () => {
+  const project = detectProject(fixturePath("postgres-not-managed"));
+  assert.equal(project.database, undefined);
+});
+
+test("does not choose a SQLite template when multiple candidates exist", () => {
+  const project = detectProject(fixturePath("sqlite-multiple-templates"));
+  assert.equal(project.database?.driver, "sqlite3");
+  assert.equal(project.database?.templatePath, undefined);
+  assert.ok(
+    project.database?.warnings.some((warning) => /Multiple SQLite database files/.test(warning)),
+  );
 });
 
 test("detects hardcoded Nest backend port and health route", () => {

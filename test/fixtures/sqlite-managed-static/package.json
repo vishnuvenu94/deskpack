@@ -1,0 +1,13 @@
+{
+  "name": "sqlite-managed-static",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "build": "node ./scripts/build.mjs"
+  },
+  "dependencies": {
+    "react": "18.3.1",
+    "vite": "5.4.0",
+    "better-sqlite3": "11.8.0"
+  }
+}

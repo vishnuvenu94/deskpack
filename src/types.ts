@@ -78,6 +78,26 @@ export interface NextRuntimeInfo {
   warnings: string[];
 }
 
+export interface DatabaseInfo {
+  provider: "sqlite";
+  mode: "managed-local";
+  driver: "better-sqlite3" | "sqlite3" | "prisma" | "drizzle" | "unknown";
+  templatePath?: string;
+  runtimeFileName: string;
+  userDataSubdir: string;
+  env: {
+    pathVar: "DESKPACK_DB_PATH";
+    urlVar: "DATABASE_URL";
+  };
+  migrations?: {
+    tool: "prisma" | "drizzle" | "custom" | "none";
+    path?: string;
+    command?: string;
+    autoRun: false;
+  };
+  warnings: string[];
+}
+
 export interface FrontendInfo {
   framework: FrontendFramework;
   uiLibrary: UILibrary;
@@ -127,6 +147,7 @@ export interface ProjectConfig {
   backend: BackendInfo;
   topology: Topology;
   topologyEvidence: TopologyEvidence;
+  database?: DatabaseInfo;
   electron: {
     window: { width: number; height: number };
   };
@@ -167,6 +188,7 @@ backend: {
   };
   topology: Topology;
   topologyEvidence: TopologyEvidence;
+  database?: DatabaseInfo;
   electron: {
     window: { width: number; height: number };
   };

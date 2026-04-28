@@ -11,6 +11,7 @@
 - Next.js static export (`output: "export"`)
 - Next.js standalone runtime (`output: "standalone"`) for SSR/server runtime apps
 - TanStack Start SPA/static prerender output
+- Managed local SQLite database assets and runtime env injection
 - Monorepo detection for common npm, pnpm, and yarn workspace layouts
 
 ## Not Supported
@@ -18,7 +19,8 @@
 - Next.js SSR without standalone output
 - TanStack Start runtime server routes, handlers, or non-static server functions
 - Dockerized runtime packaging
-- First-class database lifecycle workflows such as migrations, seeding, backup, or upgrade orchestration
+- Automatic database migrations, backup, restore, or upgrade orchestration
+- Bundled Postgres/MySQL/Docker database runtimes
 - Auto-update, signing, notarization, tray integrations, deep links, and other release-grade desktop platform workflows
 
 ## When Not to Use Deskpack
@@ -83,8 +85,9 @@ Build flow:
 1. Build frontend
 2. Bundle backend (when present)
 3. Copy runtime dependencies (native deps remain external)
-4. Regenerate Electron main process
-5. Package (unless `--skip-package`)
+4. Copy managed SQLite assets (when detected)
+5. Regenerate Electron main process
+6. Package (unless `--skip-package`)
 
 Output directory:
 
@@ -116,6 +119,19 @@ Output directory:
 - Fastify
 - Koa
 - NestJS
+
+### Database support
+
+- SQLite via `better-sqlite3` or `sqlite3`
+- Prisma projects with `provider = "sqlite"`
+- Drizzle SQLite projects
+
+SQLite databases are managed as local desktop data. A bundled template database is copied to Electron `userData` on first launch and is never overwritten on upgrade. Packaged server runtimes receive:
+
+- `DESKPACK_DB_PATH`
+- `DATABASE_URL=file:<runtime-db-path>`
+
+Deskpack copies migration files when it can detect them, but it does not run migrations automatically.
 
 ### Monorepo/workspace support
 

@@ -17,7 +17,7 @@ const path = require("path");
 const http = require("http");
 const fs = require("fs");
 const net = require("net");
-const { URL } = require("url");
+const { URL, pathToFileURL } = require("url");
 const { promisify } = require("util");
 
 const sleep = promisify(setTimeout);
@@ -29,6 +29,7 @@ const PREFERRED_FRONTEND_PORT = ${config.frontend.devPort};
 const BACKEND_HEALTH_PATH = ${JSON.stringify(backendHealthPath)};
 const API_PROXY_PREFIXES = ${JSON.stringify(config.backend.apiPrefixes ?? ["/api"])};
 const PROXY_REWRITE = ${JSON.stringify(config.backend.proxyRewrite ?? null)};
+const DATABASE_CONFIG = ${JSON.stringify(config.database ?? null)};
 const BACKEND_PROXY_PREFIX = "/__deskpack_backend__";
 const WINDOW_TITLE = ${JSON.stringify(title)};
 const WINDOW_WIDTH = ${config.electron.window.width};
@@ -196,6 +197,33 @@ function showStartupError(message) {
   console.error("[deskpack] " + message);
   dialog.showErrorBox("Startup Error", message);
   app.quit();
+}
+
+function prepareManagedSqliteDatabase() {
+  if (!DATABASE_CONFIG || DATABASE_CONFIG.provider !== "sqlite") return {};
+
+  const databaseDir = path.join(app.getPath("userData"), DATABASE_CONFIG.userDataSubdir);
+  fs.mkdirSync(databaseDir, { recursive: true });
+
+  const runtimePath = path.join(databaseDir, DATABASE_CONFIG.runtimeFileName);
+  const templatePath = path.join(process.resourcesPath, "server", "database", "template.db");
+  if (!fs.existsSync(runtimePath) && fs.existsSync(templatePath)) {
+    fs.copyFileSync(templatePath, runtimePath);
+    logInfo("Created SQLite database at " + runtimePath + ".");
+  }
+
+  return {
+    [DATABASE_CONFIG.env.pathVar]: runtimePath,
+    [DATABASE_CONFIG.env.urlVar]: pathToFileURL(runtimePath).href,
+  };
+}
+
+function serverRuntimeEnv(extra) {
+  return {
+    ...process.env,
+    ...prepareManagedSqliteDatabase(),
+    ...extra,
+  };
 }
 
 async function isPortFree(port) {
@@ -637,12 +665,11 @@ async function startBundledBackend(preferredPort) {
   backendCrashReason = "";
 
   apiProcess = utilityProcess.fork(serverPath, [], {
-    env: {
-      ...process.env,
+    env: serverRuntimeEnv({
       PORT: String(backendPort),
       DESKPACK_BACKEND_PORT: String(backendPort),
       NODE_ENV: "production",
-    },
+    }),
     cwd: path.dirname(serverPath),
     stdio: "pipe",
     serviceName: "deskpack-backend",
@@ -695,12 +722,11 @@ async function startNextStandaloneServer(preferredPort) {
   backendCrashReason = "";
 
   apiProcess = utilityProcess.fork(serverPath, [], {
-    env: {
-      ...process.env,
+    env: serverRuntimeEnv({
       PORT: String(nextPort),
       HOSTNAME: "127.0.0.1",
       NODE_ENV: "production",
-    },
+    }),
     cwd: nextDir,
     stdio: "pipe",
     serviceName: "deskpack-next",

@@ -214,6 +214,36 @@ test("generated electron runtime starts Next standalone server", () => {
   assert.match(runtime, /serviceName: "deskpack-next"/);
 });
 
+test("generated electron runtime prepares managed SQLite env", () => {
+  const config = sampleConfig();
+  config.database = {
+    provider: "sqlite",
+    mode: "managed-local",
+    driver: "better-sqlite3",
+    templatePath: "data/seed.db",
+    runtimeFileName: "app.db",
+    userDataSubdir: "database",
+    env: {
+      pathVar: "DESKPACK_DB_PATH",
+      urlVar: "DATABASE_URL",
+    },
+    migrations: {
+      tool: "none",
+      autoRun: false,
+    },
+    warnings: [],
+  };
+
+  const runtime = generateElectronMain(config);
+  assert.match(runtime, /DATABASE_CONFIG/);
+  assert.match(runtime, /prepareManagedSqliteDatabase/);
+  assert.match(runtime, /app\.getPath\("userData"\)/);
+  assert.match(runtime, /template\.db/);
+  assert.match(runtime, /serverRuntimeEnv/);
+  assert.match(runtime, /DATABASE_URL/);
+  assert.match(runtime, /DESKPACK_DB_PATH/);
+});
+
 test("loadConfig defaults apiPrefixes to [\"/api\"] when missing", () => {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "deskpack-config-test-"));
   const configPath = path.join(tmpDir, "deskpack.config.json");

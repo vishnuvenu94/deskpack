@@ -78,6 +78,15 @@ export async function initCommand(
     log.dim("  These will be kept external during bundling.");
   }
 
+  if (project.database) {
+    log.blank();
+    log.warn(`SQLite database detected (${project.database.driver}).`);
+    log.dim("  The packaged app will keep its writable database under Electron userData.");
+    for (const warning of project.database.warnings) {
+      log.dim(`  ${warning}`);
+    }
+  }
+
   if (project.topology === "ssr-framework") {
     const detail =
       project.topologyEvidence.warnings.length > 0
@@ -190,6 +199,7 @@ export async function initCommand(
     },
     topology: project.topology,
     topologyEvidence: project.topologyEvidence,
+    ...(project.database ? { database: project.database } : {}),
     electron: {
       window: { width: 1280, height: 860 },
     },

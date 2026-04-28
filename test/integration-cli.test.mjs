@@ -33,6 +33,39 @@ test("deskpack build --skip-package works for frontend-only projects", () => {
   assert.equal(fs.existsSync(path.join(serverDir, "server.mjs")), false);
 });
 
+test("deskpack build --skip-package copies managed SQLite database assets", () => {
+  const projectDir = copyFixtureToTemp("sqlite-managed-static");
+
+  const initResult = runCli(["init", "--yes", "--force"], projectDir, {
+    DESKPACK_SKIP_ELECTRON_INSTALL: "1",
+  });
+  assert.equal(initResult.status, 0, commandOutput(initResult));
+
+  const config = JSON.parse(
+    fs.readFileSync(path.join(projectDir, "deskpack.config.json"), "utf-8"),
+  );
+  assert.equal(config.database.provider, "sqlite");
+  assert.equal(config.database.templatePath, "data/seed.db");
+
+  const mainCjs = fs.readFileSync(
+    path.join(projectDir, ".deskpack", "desktop", "main.cjs"),
+    "utf-8",
+  );
+  assert.match(mainCjs, /prepareManagedSqliteDatabase/);
+  assert.match(mainCjs, /DESKPACK_DB_PATH/);
+  assert.match(mainCjs, /DATABASE_URL/);
+
+  const buildResult = runCli(["build", "--skip-package"], projectDir);
+  assert.equal(buildResult.status, 0, commandOutput(buildResult));
+
+  const databaseDir = path.join(projectDir, ".deskpack", "desktop", "server", "database");
+  assert.ok(fs.existsSync(path.join(databaseDir, "template.db")));
+  assert.equal(
+    fs.readFileSync(path.join(databaseDir, "template.db"), "utf-8"),
+    "seed sqlite template\n",
+  );
+});
+
 test("deskpack init captures hardcoded Nest backend port and health route", () => {
   const projectDir = copyFixtureToTemp("nest-hardcoded-port");
 

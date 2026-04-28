@@ -18,5 +18,7 @@
 ## What Maintainers May Decline
 
 - Requests for unsupported SSR or runtime-server topologies, including Next.js apps without standalone output
+- Requests to bundle Postgres, MySQL, Docker, or remote database services into the desktop app
+- Database migration or backup failures unless they include a minimal SQLite reproduction
 - Environment-specific issues without a reproduction
 - Packaging expectations that depend on Docker being shipped as part of the desktop runtime

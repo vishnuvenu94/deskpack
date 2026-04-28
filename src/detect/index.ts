@@ -10,6 +10,7 @@ import {
 import { detectTopology } from "./topology.js";
 import { analyzeTanstackStart } from "./tanstack-start.js";
 import { analyzeNextRuntime } from "./next.js";
+import { detectDatabase } from "./database.js";
 import type { ProjectConfig, FrontendInfo, BackendInfo } from "../types.js";
 
 /**
@@ -151,6 +152,7 @@ export function detectProject(rootDir: string): ProjectConfig {
     frontendResolved.tanstackStart ?? null,
     frontendResolved.nextRuntime ?? null,
   );
+  const database = detectDatabase(rootDir, frontendResolved, backend);
 
   return {
     name: projectName,
@@ -162,6 +164,7 @@ export function detectProject(rootDir: string): ProjectConfig {
     backend,
     topology,
     topologyEvidence: evidence,
+    ...(database ? { database } : {}),
     electron: { window: { width: 1280, height: 860 } },
   };
 }

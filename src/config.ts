@@ -163,6 +163,7 @@ function validateConfig(
 
   const topology = readEnum(raw.topology, "topology", TOPOLOGIES);
   const topologyEvidence = readTopologyEvidence(raw.topologyEvidence);
+  const database = readDatabase(rootDir, raw.database);
 
   const electronRaw = expectRecord(raw.electron, "electron");
   const windowRaw = expectRecord(electronRaw.window, "electron.window");
@@ -200,9 +201,104 @@ function validateConfig(
     },
     topology: topology as DeskpackConfig["topology"],
     topologyEvidence,
+    ...(database ? { database } : {}),
     electron: {
       window: { width: windowWidth, height: windowHeight },
     },
+  };
+}
+
+function readDatabase(
+  rootDir: string,
+  value: unknown,
+): DeskpackConfig["database"] {
+  if (value === undefined) return undefined;
+  const raw = expectRecord(value, "database");
+  const templatePath =
+    raw.templatePath === undefined
+      ? undefined
+      : validateProjectRelativePath(
+          rootDir,
+          readString(raw.templatePath, "database.templatePath"),
+          "database.templatePath",
+        );
+  const migrations = readDatabaseMigrations(rootDir, raw.migrations);
+  const runtimeFileName = readString(raw.runtimeFileName, "database.runtimeFileName");
+  const userDataSubdir = readString(raw.userDataSubdir, "database.userDataSubdir");
+  if (
+    runtimeFileName.includes("/") ||
+    runtimeFileName.includes("\\") ||
+    runtimeFileName.includes("\u0000")
+  ) {
+    fail("database.runtimeFileName must be a file name, not a path.");
+  }
+  if (
+    path.isAbsolute(userDataSubdir) ||
+    userDataSubdir.includes("..") ||
+    userDataSubdir.includes("\u0000")
+  ) {
+    fail("database.userDataSubdir must be a safe relative directory name.");
+  }
+
+  return {
+    provider: readEnum(raw.provider, "database.provider", new Set(["sqlite"])) as "sqlite",
+    mode: readEnum(raw.mode, "database.mode", new Set(["managed-local"])) as "managed-local",
+    driver: readEnum(
+      raw.driver,
+      "database.driver",
+      new Set(["better-sqlite3", "sqlite3", "prisma", "drizzle", "unknown"]),
+    ) as NonNullable<DeskpackConfig["database"]>["driver"],
+    ...(templatePath ? { templatePath } : {}),
+    runtimeFileName,
+    userDataSubdir,
+    env: readDatabaseEnv(raw.env),
+    ...(migrations ? { migrations } : {}),
+    warnings: readStringArray(raw.warnings, "database.warnings"),
+  };
+}
+
+function readDatabaseEnv(value: unknown): NonNullable<DeskpackConfig["database"]>["env"] {
+  const raw = expectRecord(value, "database.env");
+  return {
+    pathVar: readEnum(
+      raw.pathVar,
+      "database.env.pathVar",
+      new Set(["DESKPACK_DB_PATH"]),
+    ) as "DESKPACK_DB_PATH",
+    urlVar: readEnum(
+      raw.urlVar,
+      "database.env.urlVar",
+      new Set(["DATABASE_URL"]),
+    ) as "DATABASE_URL",
+  };
+}
+
+function readDatabaseMigrations(
+  rootDir: string,
+  value: unknown,
+): NonNullable<DeskpackConfig["database"]>["migrations"] | undefined {
+  if (value === undefined) return undefined;
+  const raw = expectRecord(value, "database.migrations");
+  const migrationPath =
+    raw.path === undefined
+      ? undefined
+      : validateProjectRelativePath(
+          rootDir,
+          readString(raw.path, "database.migrations.path"),
+          "database.migrations.path",
+        );
+
+  return {
+    tool: readEnum(
+      raw.tool,
+      "database.migrations.tool",
+      new Set(["prisma", "drizzle", "custom", "none"]),
+    ) as NonNullable<NonNullable<DeskpackConfig["database"]>["migrations"]>["tool"],
+    ...(migrationPath ? { path: migrationPath } : {}),
+    ...(raw.command === undefined
+      ? {}
+      : { command: readString(raw.command, "database.migrations.command") }),
+    autoRun: readFalse(raw.autoRun, "database.migrations.autoRun"),
   };
 }
 
@@ -305,6 +401,13 @@ function readBoolean(value: unknown, field: string): boolean {
     fail(`${field} must be a boolean.`);
   }
   return value;
+}
+
+function readFalse(value: unknown, field: string): false {
+  if (value !== false) {
+    fail(`${field} must be false.`);
+  }
+  return false;
 }
 
 function readPositiveInteger(value: unknown, field: string): number {
