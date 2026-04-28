@@ -3,13 +3,15 @@ import path from "node:path";
 
 const root = process.cwd();
 const standaloneDir = path.join(root, ".next", "standalone");
+// Next 13+ often nests the app under `.next/standalone/<project-name>/`.
+const appRoot = path.join(standaloneDir, "next-standalone-runtime");
 const staticDir = path.join(root, ".next", "static", "chunks");
 
-fs.mkdirSync(standaloneDir, { recursive: true });
+fs.mkdirSync(appRoot, { recursive: true });
 fs.mkdirSync(staticDir, { recursive: true });
 
 fs.writeFileSync(
-  path.join(standaloneDir, "server.js"),
+  path.join(appRoot, "server.js"),
   [
     "const http = require('node:http');",
     "const fs = require('node:fs');",
@@ -40,15 +42,15 @@ fs.writeFileSync(
   "console.log('next static chunk');\n",
 );
 
-// Mirror Next traced dependencies: hashed name under standalone/.next/node_modules symlinked back to standalone/node_modules/...
-const tracePkgDir = path.join(standaloneDir, "node_modules", "trace-native-pkg");
+// Mirror Next traced dependencies: hashed name under appRoot/.next/node_modules symlinked back to appRoot/node_modules/...
+const tracePkgDir = path.join(appRoot, "node_modules", "trace-native-pkg");
 fs.mkdirSync(tracePkgDir, { recursive: true });
 fs.writeFileSync(
   path.join(tracePkgDir, "package.json"),
   JSON.stringify({ name: "trace-native-pkg", version: "1.0.0" }),
 );
 
-const tracedNodeModules = path.join(standaloneDir, ".next", "node_modules");
+const tracedNodeModules = path.join(appRoot, ".next", "node_modules");
 fs.mkdirSync(tracedNodeModules, { recursive: true });
 const symlinkName = "trace-native-pkg-hash123";
 const symlinkFrom = path.join(tracedNodeModules, symlinkName);

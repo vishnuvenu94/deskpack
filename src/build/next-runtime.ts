@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { DeskpackConfig } from "../types.js";
+import { findStandaloneServerJsFile } from "../next-standalone-server.js";
 import { log } from "../utils/logger.js";
 
 /**
@@ -17,16 +18,25 @@ export function copyNextStandaloneRuntime(
   }
 
   const standaloneSource = path.resolve(rootDir, nextRuntime.standaloneDir);
-  const serverFile = path.resolve(rootDir, nextRuntime.serverFile);
+  let serverFile = path.resolve(rootDir, nextRuntime.serverFile);
+  if (!fs.existsSync(serverFile)) {
+    const discovered = findStandaloneServerJsFile(standaloneSource);
+    if (discovered) {
+      serverFile = discovered;
+    }
+  }
+
   if (!fs.existsSync(serverFile)) {
     throw new Error(
-      `Next.js standalone server not found at ${serverFile}. ` +
+      `Next.js standalone server not found at ${path.resolve(rootDir, nextRuntime.serverFile)} ` +
+        `(also checked under ${nextRuntime.standaloneDir}). ` +
         'Ensure next.config.* contains output: "standalone" and that the build succeeded.',
     );
   }
 
+  const standaloneAppRoot = path.dirname(serverFile);
   const destination = path.join(serverDir, "next");
-  copyTreeSync(standaloneSource, destination);
+  copyTreeSync(standaloneAppRoot, destination);
 
   const staticSource = path.resolve(rootDir, nextRuntime.staticDir);
   if (fs.existsSync(staticSource)) {

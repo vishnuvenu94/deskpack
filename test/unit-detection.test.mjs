@@ -47,9 +47,8 @@ test("detects Next standalone runtime as supported", () => {
   assert.equal(project.frontend.framework, "next");
   assert.equal(project.topology, "next-standalone-runtime");
   assert.equal(project.frontend.nextRuntime?.mode, "standalone");
-  assert.ok(
-    project.frontend.nextRuntime?.serverFile.replace(/\\/g, "/").endsWith(".next/standalone/server.js"),
-  );
+  const serverFile = project.frontend.nextRuntime?.serverFile.replace(/\\/g, "/") ?? "";
+  assert.match(serverFile, /\.next\/standalone\/(server\.js|[^/]+\/server\.js)$/);
 });
 
 test("detects monorepo workspace frontend/backend", () => {

@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { FrontendInfo, NextRuntimeInfo } from "../types.js";
+import { findStandaloneServerJsFile } from "../next-standalone-server.js";
 
 const NEXT_CONFIG_NAMES = [
   "next.config.js",
@@ -21,7 +22,7 @@ export function analyzeNextRuntime(
   const frontendDir = path.join(rootDir, frontend.path);
   const relativeBase = frontend.path === "." ? "" : frontend.path;
   const standaloneDir = path.join(relativeBase, ".next", "standalone");
-  const serverFile = path.join(standaloneDir, "server.js");
+  const serverFile = resolveStandaloneServerFileRelative(rootDir, relativeBase, standaloneDir);
   const staticDir = path.join(relativeBase, ".next", "static");
   const publicDir = path.join(relativeBase, "public");
 
@@ -103,4 +104,21 @@ function nextConfigPaths(frontendDir: string): string[] {
     if (fs.existsSync(configPath)) result.push(configPath);
   }
   return result;
+}
+
+/**
+ * Prefer `.next/standalone/server.js`; if missing, use nested
+ * `.next/standalone/<project>/server.js` when present (Next 13+ layout).
+ */
+function resolveStandaloneServerFileRelative(
+  rootDir: string,
+  relativeBase: string,
+  standaloneDir: string,
+): string {
+  const standaloneAbs = path.resolve(rootDir, relativeBase || ".", ".next", "standalone");
+  const found = findStandaloneServerJsFile(standaloneAbs);
+  if (found) {
+    return path.relative(rootDir, found);
+  }
+  return path.join(standaloneDir, "server.js");
 }
