@@ -121,6 +121,17 @@ function findPrismaSqliteSchema(rootDir: string, packageDirs: string[]): string 
     }
   }
 
+  let found: string | null = null;
+  walk(rootDir, (file) => {
+    if (found || path.basename(file) !== "schema.prisma") return;
+    const content = fs.readFileSync(file, "utf-8");
+    if (/provider\s*=\s*["']sqlite["']/.test(content)) {
+      found = path.relative(rootDir, file);
+    }
+  });
+
+  if (found) return found;
+
   return null;
 }
 

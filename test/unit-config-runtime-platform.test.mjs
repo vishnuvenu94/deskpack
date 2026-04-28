@@ -240,8 +240,10 @@ test("generated electron runtime prepares managed SQLite env", () => {
   assert.match(runtime, /app\.getPath\("userData"\)/);
   assert.match(runtime, /template\.db/);
   assert.match(runtime, /serverRuntimeEnv/);
+  assert.match(runtime, /"file:" \+ runtimePath/);
   assert.match(runtime, /DATABASE_URL/);
   assert.match(runtime, /DESKPACK_DB_PATH/);
+  assert.doesNotMatch(runtime, /pathToFileURL/);
 });
 
 test("loadConfig defaults apiPrefixes to [\"/api\"] when missing", () => {

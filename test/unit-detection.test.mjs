@@ -77,6 +77,11 @@ test("detects native backend dependencies", () => {
   assert.equal(project.database?.driver, "better-sqlite3");
 });
 
+test("detects libsql client as native backend dependency", () => {
+  const project = detectProject(fixturePath("libsql-native"));
+  assert.ok(project.backend.nativeDeps.includes("@libsql/client"));
+});
+
 test("detects managed SQLite template database", () => {
   const project = detectProject(fixturePath("sqlite-managed-static"));
   assert.equal(project.database?.provider, "sqlite");
@@ -91,6 +96,12 @@ test("detects Prisma SQLite migrations", () => {
   assert.equal(project.database?.migrations?.tool, "prisma");
   assert.equal(project.database?.migrations?.path, "prisma/migrations");
   assert.equal(project.database?.migrations?.autoRun, false);
+});
+
+test("detects nested Prisma SQLite schema before generic sqlite deps", () => {
+  const project = detectProject(fixturePath("prisma-nested-sqlite"));
+  assert.equal(project.database?.driver, "prisma");
+  assert.equal(project.database?.migrations?.tool, "prisma");
 });
 
 test("detects Drizzle SQLite migrations", () => {

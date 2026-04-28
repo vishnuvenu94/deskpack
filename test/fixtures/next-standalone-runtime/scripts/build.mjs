@@ -39,3 +39,23 @@ fs.writeFileSync(
   path.join(staticDir, "main.js"),
   "console.log('next static chunk');\n",
 );
+
+// Mirror Next traced dependencies: hashed name under standalone/.next/node_modules symlinked back to standalone/node_modules/...
+const tracePkgDir = path.join(standaloneDir, "node_modules", "trace-native-pkg");
+fs.mkdirSync(tracePkgDir, { recursive: true });
+fs.writeFileSync(
+  path.join(tracePkgDir, "package.json"),
+  JSON.stringify({ name: "trace-native-pkg", version: "1.0.0" }),
+);
+
+const tracedNodeModules = path.join(standaloneDir, ".next", "node_modules");
+fs.mkdirSync(tracedNodeModules, { recursive: true });
+const symlinkName = "trace-native-pkg-hash123";
+const symlinkFrom = path.join(tracedNodeModules, symlinkName);
+try {
+  fs.symlinkSync(path.relative(path.dirname(symlinkFrom), tracePkgDir), symlinkFrom);
+} catch (error) {
+  if (/** @type {NodeJS.ErrnoException} */ (error)?.code !== "EEXIST") {
+    throw error;
+  }
+}

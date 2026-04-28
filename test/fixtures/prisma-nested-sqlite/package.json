@@ -1,0 +1,17 @@
+{
+  "name": "prisma-nested-sqlite",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "build": "node ./scripts/build.mjs"
+  },
+  "dependencies": {
+    "react": "18.3.1",
+    "vite": "5.4.0",
+    "@prisma/client": "5.22.0",
+    "sqlite3": "5.1.7"
+  },
+  "devDependencies": {
+    "prisma": "5.22.0"
+  }
+}

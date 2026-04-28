@@ -22,11 +22,12 @@ export function copyRuntimeDependencies(
   config: DeskpackConfig,
   serverDir: string,
 ): void {
-  if (config.backend.nativeDeps.length === 0) return;
-
   const packageDirs = findPackageDirs(rootDir);
   const destinationNodeModules = path.join(serverDir, "node_modules");
   const copied = new Set<string>();
+  const needsPrismaArtifacts = hasPrismaArtifacts(rootDir, packageDirs);
+
+  if (config.backend.nativeDeps.length === 0 && !needsPrismaArtifacts) return;
 
   fs.mkdirSync(destinationNodeModules, { recursive: true });
 
@@ -43,11 +44,21 @@ export function copyRuntimeDependencies(
     copyPackageTree(rootDir, resolved, destinationNodeModules, copied, true);
   }
 
+  if (needsPrismaArtifacts) {
+    copyPrismaArtifacts(rootDir, packageDirs, destinationNodeModules, copied);
+  }
+
   if (copied.size > 0) {
     log.success(
       `Copied runtime dependencies: ${[...copied].sort().join(", ")}`,
     );
   }
+}
+
+function hasPrismaArtifacts(rootDir: string, packageDirs: string[]): boolean {
+  return packageDirs.some((dir) =>
+    fs.existsSync(path.join(dir, "node_modules", ".prisma", "client")),
+  ) || fs.existsSync(path.join(rootDir, "node_modules", ".prisma", "client"));
 }
 
 function findPackageDirs(rootDir: string): string[] {
@@ -82,34 +93,28 @@ function resolvePackage(
     const manifestPath = path.join(dir, "package.json");
     if (!fs.existsSync(manifestPath)) continue;
 
+    const directPackage = resolvePackageFromNodeModules(
+      path.join(dir, "node_modules"),
+      packageName,
+    );
+    if (directPackage) return directPackage;
+
     try {
       const requireFromPackage = createRequire(manifestPath);
       const packageJsonPath = requireFromPackage.resolve(
         `${packageName}/package.json`,
       );
-      return {
-        name: packageName,
-        packageJsonPath,
-        packageDir: path.dirname(fs.realpathSync(packageJsonPath)),
-      };
+      return resolvedPackage(packageName, packageJsonPath);
     } catch {
       // Try the next workspace/package directory.
     }
   }
 
-  const directPackageJsonPath = path.join(
-    rootDir,
-    "node_modules",
+  const directPackage = resolvePackageFromNodeModules(
+    path.join(rootDir, "node_modules"),
     packageName,
-    "package.json",
   );
-  if (fs.existsSync(directPackageJsonPath)) {
-    return {
-      name: packageName,
-      packageJsonPath: directPackageJsonPath,
-      packageDir: path.dirname(fs.realpathSync(directPackageJsonPath)),
-    };
-  }
+  if (directPackage) return directPackage;
 
   return null;
 }
@@ -167,32 +172,63 @@ function resolvePackageFromPackage(
 ): ResolvedPackage | null {
   const manifestPath = path.join(packageDir, "package.json");
 
+  for (const nodeModulesDir of nodeModulesLookupDirs(packageDir, rootDir)) {
+    const directPackage = resolvePackageFromNodeModules(
+      nodeModulesDir,
+      dependencyName,
+    );
+    if (directPackage) return directPackage;
+  }
+
   try {
     const requireFromPackage = createRequire(manifestPath);
     const packageJsonPath = requireFromPackage.resolve(
       `${dependencyName}/package.json`,
     );
-    return {
-      name: dependencyName,
-      packageJsonPath,
-      packageDir: path.dirname(fs.realpathSync(packageJsonPath)),
-    };
+    return resolvedPackage(dependencyName, packageJsonPath);
   } catch {
-    const directPackageJsonPath = path.join(
-      rootDir,
-      "node_modules",
-      dependencyName,
-      "package.json",
-    );
-
-    if (!fs.existsSync(directPackageJsonPath)) return null;
-
-    return {
-      name: dependencyName,
-      packageJsonPath: directPackageJsonPath,
-      packageDir: path.dirname(fs.realpathSync(directPackageJsonPath)),
-    };
+    return null;
   }
+}
+
+function resolvePackageFromNodeModules(
+  nodeModulesDir: string,
+  packageName: string,
+): ResolvedPackage | null {
+  const packageJsonPath = path.join(
+    nodeModulesDir,
+    ...packageName.split("/"),
+    "package.json",
+  );
+
+  if (!fs.existsSync(packageJsonPath)) return null;
+  return resolvedPackage(packageName, packageJsonPath);
+}
+
+function resolvedPackage(
+  packageName: string,
+  packageJsonPath: string,
+): ResolvedPackage {
+  return {
+    name: packageName,
+    packageJsonPath,
+    packageDir: path.dirname(fs.realpathSync(packageJsonPath)),
+  };
+}
+
+function nodeModulesLookupDirs(startDir: string, rootDir: string): string[] {
+  const dirs = new Set<string>();
+  let current = startDir;
+  const filesystemRoot = path.parse(startDir).root;
+
+  while (true) {
+    dirs.add(path.join(current, "node_modules"));
+    if (current === rootDir || current === filesystemRoot) break;
+    current = path.dirname(current);
+  }
+
+  dirs.add(path.join(rootDir, "node_modules"));
+  return [...dirs];
 }
 
 function copyPackageDir(
@@ -215,4 +251,41 @@ function copyPackageDir(
       return !relative.split(path.sep).includes("node_modules");
     },
   });
+}
+
+function copyPrismaArtifacts(
+  rootDir: string,
+  packageDirs: string[],
+  destinationNodeModules: string,
+  copied: Set<string>,
+): void {
+  const prismaClientDir = resolvePrismaClientDir(rootDir, packageDirs);
+  if (prismaClientDir) {
+    const destination = path.join(destinationNodeModules, ".prisma", "client");
+    if (fs.existsSync(destination)) {
+      fs.rmSync(destination, { recursive: true, force: true });
+    }
+    fs.mkdirSync(path.dirname(destination), { recursive: true });
+    fs.cpSync(prismaClientDir, destination, { recursive: true, dereference: true });
+    copied.add(".prisma/client");
+  }
+
+  const prismaPackageNames = ["@prisma/client"];
+  for (const packageName of prismaPackageNames) {
+    const resolved = resolvePackage(rootDir, packageDirs, packageName);
+    if (resolved) {
+      copyPackageTree(rootDir, resolved, destinationNodeModules, copied, false);
+    }
+  }
+}
+
+function resolvePrismaClientDir(rootDir: string, packageDirs: string[]): string | null {
+  for (const dir of packageDirs) {
+    const candidate = path.join(dir, "node_modules", ".prisma", "client");
+    if (fs.existsSync(candidate)) return candidate;
+  }
+
+  const rootCandidate = path.join(rootDir, "node_modules", ".prisma", "client");
+  if (fs.existsSync(rootCandidate)) return rootCandidate;
+  return null;
 }

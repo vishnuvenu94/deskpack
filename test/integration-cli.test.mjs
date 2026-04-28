@@ -150,6 +150,17 @@ test("deskpack build --skip-package copies Next standalone runtime", () => {
   assert.ok(fs.existsSync(path.join(nextDir, ".next", "static", "chunks", "main.js")));
   assert.ok(fs.existsSync(path.join(nextDir, "public", "hello.txt")));
   assert.match(fs.readFileSync(serverFile, "utf-8"), /next standalone ssr/);
+
+  const tracedLink = path.join(nextDir, ".next", "node_modules", "trace-native-pkg-hash123");
+  const resolvedPkg = path.join(nextDir, "node_modules", "trace-native-pkg");
+  assert.ok(fs.existsSync(tracedLink), "Expected traced symlink to exist after copy");
+  assert.ok(fs.lstatSync(tracedLink).isSymbolicLink(), "Expected traced dependency to remain a symlink");
+  assert.ok(fs.existsSync(path.join(resolvedPkg, "package.json")));
+  assert.strictEqual(
+    fs.realpathSync(tracedLink),
+    fs.realpathSync(resolvedPkg),
+    "Symlink should resolve to the copied package tree",
+  );
 });
 
 test("deskpack init refuses TanStack Start without static mode", () => {

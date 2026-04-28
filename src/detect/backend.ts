@@ -17,6 +17,8 @@ const KNOWN_NATIVE_DEPS: string[] = [
   "playwright",
   "playwright-core",
   "better-sqlite3",
+  "@libsql/client",
+  "libsql",
   "sqlite3",
   "sharp",
   "bcrypt",

@@ -26,32 +26,57 @@ export function copyNextStandaloneRuntime(
   }
 
   const destination = path.join(serverDir, "next");
-  copyDirSync(standaloneSource, destination);
+  copyTreeSync(standaloneSource, destination);
 
   const staticSource = path.resolve(rootDir, nextRuntime.staticDir);
   if (fs.existsSync(staticSource)) {
-    copyDirSync(staticSource, path.join(destination, ".next", "static"));
+    copyTreeSync(staticSource, path.join(destination, ".next", "static"));
   }
 
   const publicSource = path.resolve(rootDir, nextRuntime.publicDir);
   if (fs.existsSync(publicSource)) {
-    copyDirSync(publicSource, path.join(destination, "public"));
+    copyTreeSync(publicSource, path.join(destination, "public"));
   }
 
   log.success(`Copied Next.js standalone runtime → ${path.relative(rootDir, destination)}`);
 }
 
-function copyDirSync(src: string, dest: string): void {
-  fs.mkdirSync(dest, { recursive: true });
-
-  for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
-    const srcPath = path.join(src, entry.name);
-    const destPath = path.join(dest, entry.name);
-
-    if (entry.isDirectory()) {
-      copyDirSync(srcPath, destPath);
-    } else {
-      fs.copyFileSync(srcPath, destPath);
-    }
+/**
+ * Recursive copy preserving symlinks relative targets. Next traces native deps such as
+ * `.next/node_modules/better-sqlite3-<hash> -> ../../node_modules/better-sqlite3`; those are not
+ * regular files (see `copyFileSync` / `ENOTSUP`). Node's `fs.cpSync` on some platforms rewrites
+ * symlink targets to absolute paths under the source tree, so we copy entries explicitly.
+ */
+function copyTreeSync(src: string, dest: string): void {
+  fs.mkdirSync(path.dirname(dest), { recursive: true });
+  if (fs.existsSync(dest)) {
+    fs.rmSync(dest, { recursive: true, force: true });
   }
+  copyEntrySync(src, dest);
+}
+
+function copyEntrySync(src: string, dest: string): void {
+  const stat = fs.lstatSync(src);
+
+  if (stat.isSymbolicLink()) {
+    fs.symlinkSync(fs.readlinkSync(src, "utf8"), dest);
+    return;
+  }
+
+  if (stat.isDirectory()) {
+    fs.mkdirSync(dest, { recursive: true });
+    for (const name of fs.readdirSync(src)) {
+      copyEntrySync(path.join(src, name), path.join(dest, name));
+    }
+    return;
+  }
+
+  if (stat.isFile()) {
+    fs.copyFileSync(src, dest);
+    return;
+  }
+
+  throw new Error(
+    `Deskpack cannot copy this file type into the Next standalone bundle (not a file, directory, or symlink): ${src}`,
+  );
 }

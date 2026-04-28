@@ -17,7 +17,7 @@ const path = require("path");
 const http = require("http");
 const fs = require("fs");
 const net = require("net");
-const { URL, pathToFileURL } = require("url");
+const { URL } = require("url");
 const { promisify } = require("util");
 
 const sleep = promisify(setTimeout);
@@ -214,7 +214,7 @@ function prepareManagedSqliteDatabase() {
 
   return {
     [DATABASE_CONFIG.env.pathVar]: runtimePath,
-    [DATABASE_CONFIG.env.urlVar]: pathToFileURL(runtimePath).href,
+    [DATABASE_CONFIG.env.urlVar]: "file:" + runtimePath,
   };
 }
 
