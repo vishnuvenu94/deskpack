@@ -1,6 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
-import type { FrontendInfo, TanstackStartInfo } from "../types.js";
+import type {
+  FrontendInfo,
+  TanstackStartInfo,
+  TanstackStartRuntimeInfo,
+} from "../types.js";
 
 const START_PACKAGE_NAMES = ["@tanstack/react-start", "@tanstack/solid-start"] as const;
 
@@ -16,7 +20,7 @@ const TANSTACK_PLUGIN_CALL =
 
 const NO_STATIC_MODE_MESSAGE =
   "TanStack Start server runtime detected. Enable SPA/static prerendering in tanstackStart() " +
-  "(spa: { enabled: true } or prerender: { enabled: true }) or wait for SSR support.";
+  "(spa: { enabled: true } or prerender: { enabled: true }) or configure Nitro Node output for desktop SSR packaging.";
 
 /**
  * When Start is confirmed, determine static-only eligibility and reasons to reject.
@@ -32,6 +36,7 @@ export function analyzeTanstackStart(
   const pkg = JSON.parse(fs.readFileSync(pkgJsonPath, "utf-8")) as {
     dependencies?: Record<string, string>;
     devDependencies?: Record<string, string>;
+    scripts?: Record<string, string>;
   };
   const deps: Record<string, string> = {
     ...pkg.dependencies,
@@ -50,10 +55,23 @@ export function analyzeTanstackStart(
   const spaEnabled = hasNestedEnabledFlag(viteContent, "spa");
   const prerenderEnabled = hasNestedEnabledFlag(viteContent, "prerender");
   const hasStaticMode = spaEnabled || prerenderEnabled;
+  const runtime = detectNodeRuntime(pkgDir, rootDir, pkg, viteContent, deps);
+
+  if (runtime) {
+    return {
+      isConfirmed: true,
+      mode: "node-runtime",
+      spaEnabled,
+      prerenderEnabled,
+      runtime,
+      ineligibilityReasons: [],
+    };
+  }
 
   if (!hasStaticMode) {
     return {
       isConfirmed: true,
+      mode: "unsupported",
       spaEnabled: false,
       prerenderEnabled: false,
       ineligibilityReasons: [NO_STATIC_MODE_MESSAGE],
@@ -63,9 +81,41 @@ export function analyzeTanstackStart(
   const ineligibilityReasons = collectRuntimeBlockers(pkgDir, rootDir);
   return {
     isConfirmed: true,
+    mode: ineligibilityReasons.length > 0 ? "unsupported" : "static",
     spaEnabled,
     prerenderEnabled,
     ineligibilityReasons,
+  };
+}
+
+function detectNodeRuntime(
+  pkgDir: string,
+  rootDir: string,
+  pkg: { scripts?: Record<string, string> },
+  viteContent: string,
+  deps: Record<string, string>,
+): TanstackStartRuntimeInfo | undefined {
+  const scripts = Object.values(pkg.scripts ?? {}).join("\n");
+  const hasNitroSignal =
+    "nitro" in deps ||
+    /from\s+["']nitro\/vite["']/.test(viteContent) ||
+    /\bnitro\s*\(/.test(viteContent) ||
+    /\.output\/server\/index\.mjs/.test(scripts);
+
+  if (!hasNitroSignal) return undefined;
+
+  const relativeBase = path.relative(rootDir, pkgDir) || ".";
+  const base = relativeBase === "." ? "" : relativeBase;
+  const outputDir = path.join(base, ".output");
+  const serverFile = path.join(outputDir, "server", "index.mjs");
+  const publicDir = path.join(outputDir, "public");
+
+  return {
+    mode: "node",
+    outputDir,
+    serverFile,
+    publicDir,
+    warnings: [],
   };
 }
 

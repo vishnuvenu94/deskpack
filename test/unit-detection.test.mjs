@@ -113,6 +113,15 @@ test("TanStack Start runtime server routes block static packaging", () => {
   );
 });
 
+test("TanStack Start Node/Nitro runtime is supported", () => {
+  const project = detectProject(fixturePath("tanstack-start-nitro-runtime"));
+  assert.equal(project.topology, "tanstack-start-runtime");
+  assert.ok(project.frontend.tanstackStart?.isConfirmed);
+  assert.equal(project.frontend.tanstackStart?.mode, "node-runtime");
+  assert.equal(project.frontend.tanstackStart?.runtime?.serverFile, ".output/server/index.mjs");
+  assert.equal(project.frontend.tanstackStart?.ineligibilityReasons.length, 0);
+});
+
 test("TanStack Start without spa/prerender is unsupported", () => {
   const project = detectProject(fixturePath("tanstack-start-no-static"));
   assert.equal(project.topology, "ssr-framework");

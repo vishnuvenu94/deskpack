@@ -106,6 +106,21 @@ export function detectTopology(
     };
   }
 
+  if (
+    backendPath &&
+    backendEntry &&
+    tanstackStart?.isConfirmed &&
+    tanstackStart.mode === "node-runtime"
+  ) {
+    evidence.warnings.push(
+      "TanStack Start Node/Nitro runtime with a separately detected backend is not supported yet. Package backend behavior behind TanStack Start routes or use a static frontend + API backend topology.",
+    );
+    return {
+      topology: "unsupported",
+      evidence,
+    };
+  }
+
   if (frontendFramework === "next" && nextRuntime?.mode === "unsupported") {
     evidence.warnings.push(...nextRuntime.warnings);
     return {
@@ -131,6 +146,13 @@ export function detectTopology(
 
   // If no backend, it's frontend-only
   if (!backendPath || !backendEntry) {
+    if (tanstackStart?.isConfirmed && tanstackStart.mode === "node-runtime") {
+      return {
+        topology: "tanstack-start-runtime",
+        evidence,
+      };
+    }
+
     if (frontendFramework === "next" && nextRuntime?.mode === "standalone") {
       return {
         topology: "next-standalone-runtime",
@@ -175,6 +197,7 @@ export function detectTopology(
     evidence,
     frontendFramework,
     frontendPath,
+    tanstackStart ?? null,
     nextRuntime ?? null,
   );
 
@@ -189,11 +212,16 @@ function classifyTopology(
   evidence: TopologyEvidence,
   frontendFramework: FrontendFramework,
   frontendPath: string,
+  tanstackStart: TanstackStartInfo | null,
   nextRuntime: NextRuntimeInfo | null,
 ): Topology {
   // If SSR patterns found, it's SSR framework (unsupported)
   if (evidence.ssrPatterns.length > 0) {
     return "ssr-framework";
+  }
+
+  if (tanstackStart?.isConfirmed && tanstackStart.mode === "node-runtime") {
+    return "tanstack-start-runtime";
   }
 
   // Next.js support boundary:
@@ -281,6 +309,8 @@ export function topologyDescription(topology: Topology): string {
       return "Frontend-only static application (no backend)";
     case "next-standalone-runtime":
       return "Next.js standalone server runtime";
+    case "tanstack-start-runtime":
+      return "TanStack Start Node/Nitro server runtime";
     case "ssr-framework":
       return "SSR framework detected (not yet supported)";
     case "unsupported":

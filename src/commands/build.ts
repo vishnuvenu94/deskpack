@@ -5,6 +5,7 @@ import { buildFrontend } from "../build/frontend.js";
 import { bundleBackend } from "../build/backend.js";
 import { copyRuntimeDependencies } from "../build/runtime-deps.js";
 import { copyNextStandaloneRuntime } from "../build/next-runtime.js";
+import { copyTanstackStartRuntime } from "../build/tanstack-start-runtime.js";
 import { packageElectron } from "../build/package.js";
 import {
   inspectPlatformBuild,
@@ -38,7 +39,7 @@ export async function buildCommand(
     const detail =
       config.topologyEvidence.warnings.length > 0
         ? config.topologyEvidence.warnings.join(" ")
-        : 'SSR/server runtime topology is not supported unless it uses a supported standalone runtime such as Next.js output: "standalone".';
+        : 'SSR/server runtime topology is not supported unless it uses a supported runtime such as Next.js output: "standalone" or TanStack Start Node/Nitro output.';
     throw new Error(detail);
   }
 
@@ -109,6 +110,29 @@ export async function buildCommand(
 
   if (config.topology === "next-standalone-runtime") {
     copyNextStandaloneRuntime(rootDir, config, serverDir);
+
+    fs.writeFileSync(
+      path.join(desktopDir, "main.cjs"),
+      generateElectronMain(config),
+    );
+
+    if (!options.skipPackage) {
+      log.blank();
+      await packageElectron(rootDir, targetPlatform);
+    }
+
+    log.blank();
+    log.success(chalk.bold("Build complete!"));
+    if (options.skipPackage) {
+      log.step("Bundled files", `.deskpack${path.sep}desktop${path.sep}server`);
+      log.dim("  Run without --skip-package to create installers");
+    }
+    log.blank();
+    return;
+  }
+
+  if (config.topology === "tanstack-start-runtime") {
+    copyTanstackStartRuntime(rootDir, config, serverDir);
 
     fs.writeFileSync(
       path.join(desktopDir, "main.cjs"),

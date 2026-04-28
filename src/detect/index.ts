@@ -111,6 +111,7 @@ export function detectProject(rootDir: string): ProjectConfig {
     frontendResolved = { ...frontendResolved, tanstackStart };
     if (
       tanstackStart.isConfirmed &&
+      tanstackStart.mode === "static" &&
       tanstackStart.ineligibilityReasons.length === 0
     ) {
       const base = frontendResolved.path === "." ? "" : frontendResolved.path;

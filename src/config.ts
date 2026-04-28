@@ -12,6 +12,7 @@ const TOPOLOGIES = new Set([
   "frontend-static-separate",
   "frontend-only-static",
   "next-standalone-runtime",
+  "tanstack-start-runtime",
   "ssr-framework",
   "unsupported",
 ]);
@@ -120,7 +121,7 @@ function validateConfig(
     "frontend.distDir",
   );
   const frontendDevPort = readPort(frontendRaw.devPort, "frontend.devPort", false);
-  const tanstackStart = readTanstackStart(frontendRaw.tanstackStart);
+  const tanstackStart = readTanstackStart(rootDir, frontendRaw.tanstackStart);
   const nextRuntime = readNextRuntime(rootDir, frontendRaw.nextRuntime);
 
   const backendRaw = expectRecord(raw.backend, "backend");
@@ -242,16 +243,70 @@ function readNextRuntime(
   };
 }
 
-function readTanstackStart(value: unknown): DeskpackConfig["frontend"]["tanstackStart"] {
+function readTanstackStart(
+  rootDir: string,
+  value: unknown,
+): DeskpackConfig["frontend"]["tanstackStart"] {
   if (value === undefined) return undefined;
   const raw = expectRecord(value, "frontend.tanstackStart");
+  const runtime = readTanstackStartRuntime(rootDir, raw.runtime);
+  const ineligibilityReasons = readStringArray(
+    raw.ineligibilityReasons,
+    "frontend.tanstackStart.ineligibilityReasons",
+  );
+  const mode =
+    raw.mode === undefined
+      ? runtime
+        ? "node-runtime"
+        : ineligibilityReasons.length > 0
+          ? "unsupported"
+          : "static"
+      : (readEnum(
+          raw.mode,
+          "frontend.tanstackStart.mode",
+          new Set(["static", "node-runtime", "unsupported"]),
+        ) as NonNullable<DeskpackConfig["frontend"]["tanstackStart"]>["mode"]);
+
   return {
     isConfirmed: readBoolean(raw.isConfirmed, "frontend.tanstackStart.isConfirmed"),
+    mode,
     spaEnabled: readBoolean(raw.spaEnabled, "frontend.tanstackStart.spaEnabled"),
     prerenderEnabled: readBoolean(raw.prerenderEnabled, "frontend.tanstackStart.prerenderEnabled"),
-    ineligibilityReasons: readStringArray(
-      raw.ineligibilityReasons,
-      "frontend.tanstackStart.ineligibilityReasons",
+    ...(runtime ? { runtime } : {}),
+    ineligibilityReasons,
+  };
+}
+
+function readTanstackStartRuntime(
+  rootDir: string,
+  value: unknown,
+): NonNullable<NonNullable<DeskpackConfig["frontend"]["tanstackStart"]>["runtime"]> | undefined {
+  if (value === undefined) return undefined;
+  const raw = expectRecord(value, "frontend.tanstackStart.runtime");
+  return {
+    mode: readEnum(
+      raw.mode,
+      "frontend.tanstackStart.runtime.mode",
+      new Set(["node"]),
+    ) as "node",
+    outputDir: validateProjectRelativePath(
+      rootDir,
+      readString(raw.outputDir, "frontend.tanstackStart.runtime.outputDir"),
+      "frontend.tanstackStart.runtime.outputDir",
+    ),
+    serverFile: validateProjectRelativePath(
+      rootDir,
+      readString(raw.serverFile, "frontend.tanstackStart.runtime.serverFile"),
+      "frontend.tanstackStart.runtime.serverFile",
+    ),
+    publicDir: validateProjectRelativePath(
+      rootDir,
+      readString(raw.publicDir, "frontend.tanstackStart.runtime.publicDir"),
+      "frontend.tanstackStart.runtime.publicDir",
+    ),
+    warnings: readStringArray(
+      raw.warnings,
+      "frontend.tanstackStart.runtime.warnings",
     ),
   };
 }

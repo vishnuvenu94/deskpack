@@ -740,6 +740,66 @@ async function startNextStandaloneServer(preferredPort) {
   return nextPort;
 }
 
+async function startTanstackStartServer(preferredPort) {
+  const startPort = await resolvePort(preferredPort, "TanStack Start");
+  const startDir = path.join(process.resourcesPath, "server", "tanstack");
+  const launcherPath = path.join(startDir, "start.cjs");
+  const serverPath = path.join(startDir, ".output", "server", "index.mjs");
+  if (!fs.existsSync(serverPath)) {
+    throw new Error("TanStack Start server missing: " + serverPath);
+  }
+
+  let stderrBuffer = "";
+  backendCrashReason = "";
+
+  apiProcess = utilityProcess.fork(launcherPath, [], {
+    env: {
+      ...process.env,
+      PORT: String(startPort),
+      NITRO_PORT: String(startPort),
+      HOST: "127.0.0.1",
+      NITRO_HOST: "127.0.0.1",
+      NODE_ENV: "production",
+    },
+    cwd: startDir,
+    stdio: "pipe",
+    serviceName: "deskpack-tanstack-start",
+  });
+
+  apiProcess.stdout?.on("data", (chunk) => {
+    const message = String(chunk).trim();
+    if (message) console.log("[tanstack-start] " + message);
+  });
+  apiProcess.stderr?.on("data", (chunk) => {
+    const message = String(chunk);
+    stderrBuffer += message;
+    const trimmed = message.trim();
+    if (trimmed) console.error("[tanstack-start:err] " + trimmed);
+  });
+  apiProcess.once("exit", (code) => {
+    const detail = stderrBuffer.trim();
+    backendCrashReason =
+      "TanStack Start server exited before readiness (code " +
+      code +
+      ")." +
+      (detail ? "\\n\\n" + detail : "");
+    if (!isQuitting && !startupFailed && code !== 0) {
+      showStartupError(backendCrashReason);
+    }
+    apiProcess = null;
+  });
+
+  await waitForServerReady({
+    label: "TanStack Start",
+    port: startPort,
+    timeoutMs: 30000,
+    preferredHealthPath: "/",
+    crashDetails: () => backendCrashReason,
+  });
+
+  return startPort;
+}
+
 function createWindow(url) {
   if (mainWindow) {
     if (mainWindow.isMinimized()) mainWindow.restore();
@@ -886,6 +946,21 @@ async function resolveLoadUrl() {
     return "http://127.0.0.1:" + nextPort;
   }
 
+  if (TOPOLOGY === "tanstack-start-runtime") {
+    if (isDev) {
+      await waitForServerReady({
+        label: "TanStack Start dev server",
+        port: PREFERRED_FRONTEND_PORT,
+        timeoutMs: 30000,
+        preferredHealthPath: "/",
+      });
+      return "http://127.0.0.1:" + PREFERRED_FRONTEND_PORT;
+    }
+
+    const startPort = await startTanstackStartServer(PREFERRED_FRONTEND_PORT);
+    return "http://127.0.0.1:" + startPort;
+  }
+
   if (TOPOLOGY === "backend-serves-frontend") {
     if (isDev) {
       setupApiInterceptor(PREFERRED_API_PORT);
@@ -1005,7 +1080,7 @@ function unsupportedTopologyMessage(topology: DeskpackConfig["topology"]): strin
   if (topology === "ssr-framework") {
     return (
       "This SSR/server runtime project is not supported yet. " +
-      "For Next.js, use output: 'standalone' or output: 'export' and re-run deskpack init."
+      "For Next.js, use output: 'standalone' or output: 'export'. For TanStack Start, use static output or Nitro Node output. Re-run deskpack init."
     );
   }
 

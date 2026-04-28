@@ -214,6 +214,32 @@ test("generated electron runtime starts Next standalone server", () => {
   assert.match(runtime, /serviceName: "deskpack-next"/);
 });
 
+test("generated electron runtime starts TanStack Start Nitro server", () => {
+  const config = sampleConfig();
+  config.frontend.tanstackStart = {
+    isConfirmed: true,
+    mode: "node-runtime",
+    spaEnabled: false,
+    prerenderEnabled: false,
+    runtime: {
+      mode: "node",
+      outputDir: ".output",
+      serverFile: ".output/server/index.mjs",
+      publicDir: ".output/public",
+      warnings: [],
+    },
+    ineligibilityReasons: [],
+  };
+  config.topology = "tanstack-start-runtime";
+
+  const runtime = generateElectronMain(config);
+  assert.match(runtime, /startTanstackStartServer/);
+  assert.match(runtime, /TOPOLOGY === "tanstack-start-runtime"/);
+  assert.match(runtime, /NITRO_PORT: String\(startPort\)/);
+  assert.match(runtime, /NITRO_HOST: "127\.0\.0\.1"/);
+  assert.match(runtime, /serviceName: "deskpack-tanstack-start"/);
+});
+
 test("loadConfig defaults apiPrefixes to [\"/api\"] when missing", () => {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "deskpack-config-test-"));
   const configPath = path.join(tmpDir, "deskpack.config.json");

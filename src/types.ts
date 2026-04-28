@@ -29,6 +29,8 @@ export type Topology =
   | "frontend-only-static"
   /** Next.js standalone server runtime */
   | "next-standalone-runtime"
+  /** TanStack Start Node/Nitro server runtime */
+  | "tanstack-start-runtime"
   /** SSR framework without a supported runtime output */
   | "ssr-framework"
   /** Detection could not determine a reliable topology */
@@ -58,13 +60,24 @@ export interface MonorepoInfo {
   workspaces: string[];
 }
 
-/** TanStack Start analysis for deskpack static-only packaging. */
+/** TanStack Start Node/Nitro runtime output analysis. */
+export interface TanstackStartRuntimeInfo {
+  mode: "node";
+  outputDir: string;
+  serverFile: string;
+  publicDir: string;
+  warnings: string[];
+}
+
+/** TanStack Start analysis for static or Node/Nitro runtime packaging. */
 export interface TanstackStartInfo {
   /** Start dependency present and `tanstackStart`-style plugin call found in Vite config. */
   isConfirmed: boolean;
+  mode: "static" | "node-runtime" | "unsupported";
   spaEnabled: boolean;
   prerenderEnabled: boolean;
-  /** Non-empty when this Start app cannot be packaged as static-only. */
+  runtime?: TanstackStartRuntimeInfo;
+  /** Non-empty when this Start app cannot be packaged by deskpack. */
   ineligibilityReasons: string[];
 }
 

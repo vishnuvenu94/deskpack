@@ -143,6 +143,33 @@ test("deskpack init refuses TanStack Start with runtime server routes", () => {
   assert.match(output, /server\.handlers|handlers|runtime/i, output);
 });
 
+test("deskpack build --skip-package copies TanStack Start Nitro runtime", () => {
+  const projectDir = copyFixtureToTemp("tanstack-start-nitro-runtime");
+
+  const initResult = runCli(["init", "--yes", "--force"], projectDir, {
+    DESKPACK_SKIP_ELECTRON_INSTALL: "1",
+  });
+  assert.equal(initResult.status, 0, commandOutput(initResult));
+
+  const config = JSON.parse(
+    fs.readFileSync(path.join(projectDir, "deskpack.config.json"), "utf-8"),
+  );
+  assert.equal(config.topology, "tanstack-start-runtime");
+  assert.equal(config.frontend.tanstackStart.runtime.serverFile, ".output/server/index.mjs");
+
+  const buildResult = runCli(["build", "--skip-package"], projectDir);
+  assert.equal(buildResult.status, 0, commandOutput(buildResult));
+
+  const runtimeDir = path.join(projectDir, ".deskpack", "desktop", "server", "tanstack");
+  assert.ok(fs.existsSync(path.join(runtimeDir, "start.cjs")));
+  assert.ok(fs.existsSync(path.join(runtimeDir, ".output", "server", "index.mjs")));
+  assert.ok(fs.existsSync(path.join(runtimeDir, ".output", "public", "asset.txt")));
+  assert.match(
+    fs.readFileSync(path.join(runtimeDir, ".output", "server", "index.mjs"), "utf-8"),
+    /tanstack start nitro runtime/,
+  );
+});
+
 test("deskpack build copies TanStack SPA shell dist/client to web-dist", () => {
   const projectDir = copyFixtureToTemp("tanstack-start-spa-static");
 

@@ -83,7 +83,8 @@ export async function initCommand(
       project.topologyEvidence.warnings.length > 0
         ? project.topologyEvidence.warnings.join(" ")
         : "SSR/server runtime projects are not supported for deskpack static packaging. " +
-          "For Next.js, configure static export (output: \"export\") or standalone output (output: \"standalone\") and run init again.";
+          "For Next.js, configure static export (output: \"export\") or standalone output (output: \"standalone\"). " +
+          "For TanStack Start, configure static output or Nitro Node output and run init again.";
     throw new Error(detail);
   }
 

@@ -11,12 +11,13 @@
 - Next.js static export (`output: "export"`)
 - Next.js standalone runtime (`output: "standalone"`) for SSR/server runtime apps
 - TanStack Start SPA/static prerender output
+- TanStack Start Node/Nitro runtime output (`.output/server/index.mjs`)
 - Monorepo detection for common npm, pnpm, and yarn workspace layouts
 
 ## Not Supported
 
 - Next.js SSR without standalone output
-- TanStack Start runtime server routes, handlers, or non-static server functions
+- TanStack Start runtime apps without Node/Nitro output
 - Dockerized runtime packaging
 - First-class database lifecycle workflows such as migrations, seeding, backup, or upgrade orchestration
 - Auto-update, signing, notarization, tray integrations, deep links, and other release-grade desktop platform workflows
