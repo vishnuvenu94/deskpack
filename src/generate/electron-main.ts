@@ -683,6 +683,63 @@ async function startBundledBackend(preferredPort) {
   return backendPort;
 }
 
+async function startNextStandaloneServer(preferredPort) {
+  const nextPort = await resolvePort(preferredPort, "Next.js");
+  const nextDir = path.join(process.resourcesPath, "server", "next");
+  const serverPath = path.join(nextDir, "server.js");
+  if (!fs.existsSync(serverPath)) {
+    throw new Error("Next.js standalone server missing: " + serverPath);
+  }
+
+  let stderrBuffer = "";
+  backendCrashReason = "";
+
+  apiProcess = utilityProcess.fork(serverPath, [], {
+    env: {
+      ...process.env,
+      PORT: String(nextPort),
+      HOSTNAME: "127.0.0.1",
+      NODE_ENV: "production",
+    },
+    cwd: nextDir,
+    stdio: "pipe",
+    serviceName: "deskpack-next",
+  });
+
+  apiProcess.stdout?.on("data", (chunk) => {
+    const message = String(chunk).trim();
+    if (message) console.log("[next] " + message);
+  });
+  apiProcess.stderr?.on("data", (chunk) => {
+    const message = String(chunk);
+    stderrBuffer += message;
+    const trimmed = message.trim();
+    if (trimmed) console.error("[next:err] " + trimmed);
+  });
+  apiProcess.once("exit", (code) => {
+    const detail = stderrBuffer.trim();
+    backendCrashReason =
+      "Next.js server exited before readiness (code " +
+      code +
+      ")." +
+      (detail ? "\\n\\n" + detail : "");
+    if (!isQuitting && !startupFailed && code !== 0) {
+      showStartupError(backendCrashReason);
+    }
+    apiProcess = null;
+  });
+
+  await waitForServerReady({
+    label: "Next.js",
+    port: nextPort,
+    timeoutMs: 30000,
+    preferredHealthPath: "/",
+    crashDetails: () => backendCrashReason,
+  });
+
+  return nextPort;
+}
+
 function createWindow(url) {
   if (mainWindow) {
     if (mainWindow.isMinimized()) mainWindow.restore();
@@ -814,6 +871,21 @@ function setupApiInterceptor(actualBackendPort) {
 }
 
 async function resolveLoadUrl() {
+  if (TOPOLOGY === "next-standalone-runtime") {
+    if (isDev) {
+      await waitForServerReady({
+        label: "Next.js dev server",
+        port: PREFERRED_FRONTEND_PORT,
+        timeoutMs: 30000,
+        preferredHealthPath: "/",
+      });
+      return "http://127.0.0.1:" + PREFERRED_FRONTEND_PORT;
+    }
+
+    const nextPort = await startNextStandaloneServer(PREFERRED_FRONTEND_PORT);
+    return "http://127.0.0.1:" + nextPort;
+  }
+
   if (TOPOLOGY === "backend-serves-frontend") {
     if (isDev) {
       setupApiInterceptor(PREFERRED_API_PORT);
@@ -932,8 +1004,8 @@ function normalizeHealthPath(value: string | undefined): string {
 function unsupportedTopologyMessage(topology: DeskpackConfig["topology"]): string | null {
   if (topology === "ssr-framework") {
     return (
-      "Next.js SSR/server runtime projects are not supported yet. " +
-      "Use a static export (output: 'export') and re-run deskpack init."
+      "This SSR/server runtime project is not supported yet. " +
+      "For Next.js, use output: 'standalone' or output: 'export' and re-run deskpack init."
     );
   }
 

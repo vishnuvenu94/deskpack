@@ -27,7 +27,9 @@ export type Topology =
   | "frontend-static-separate"
   /** Frontend-only static app (no backend detected) */
   | "frontend-only-static"
-  /** SSR framework (Next.js with SSR mode) — not yet supported */
+  /** Next.js standalone server runtime */
+  | "next-standalone-runtime"
+  /** SSR framework without a supported runtime output */
   | "ssr-framework"
   /** Detection could not determine a reliable topology */
   | "unsupported";
@@ -66,6 +68,16 @@ export interface TanstackStartInfo {
   ineligibilityReasons: string[];
 }
 
+/** Next.js runtime output analysis for static export or standalone server packaging. */
+export interface NextRuntimeInfo {
+  mode: "static-export" | "standalone" | "unsupported";
+  standaloneDir: string;
+  serverFile: string;
+  staticDir: string;
+  publicDir: string;
+  warnings: string[];
+}
+
 export interface FrontendInfo {
   framework: FrontendFramework;
   uiLibrary: UILibrary;
@@ -76,6 +88,8 @@ export interface FrontendInfo {
   distDir: string;
   /** Set when `@tanstack/react-start` / `@tanstack/solid-start` + Vite plugin usage is confirmed. */
   tanstackStart?: TanstackStartInfo;
+  /** Set for Next.js projects to describe supported runtime output mode. */
+  nextRuntime?: NextRuntimeInfo;
 }
 
 export interface BackendInfo {
@@ -133,6 +147,7 @@ export interface DeskpackConfig {
     distDir: string;
     devPort: number;
     tanstackStart?: TanstackStartInfo;
+    nextRuntime?: NextRuntimeInfo;
   };
 backend: {
     framework: BackendFramework;

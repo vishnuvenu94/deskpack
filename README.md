@@ -8,13 +8,14 @@
 
 - Frontend-only static apps
 - Full-stack Node backends where the backend serves frontend static files, or the frontend is static and served separately from an API backend
-- Next.js static export (`output: "export"`) only
+- Next.js static export (`output: "export"`)
+- Next.js standalone runtime (`output: "standalone"`) for SSR/server runtime apps
 - TanStack Start SPA/static prerender output
 - Monorepo detection for common npm, pnpm, and yarn workspace layouts
 
 ## Not Supported
 
-- Next.js SSR or standalone server runtime
+- Next.js SSR without standalone output
 - TanStack Start runtime server routes, handlers, or non-static server functions
 - Dockerized runtime packaging
 - First-class database lifecycle workflows such as migrations, seeding, backup, or upgrade orchestration
@@ -23,7 +24,7 @@
 ## When Not to Use Deskpack
 
 - You are starting a brand-new Electron app and want a purpose-built Electron architecture from day one
-- Your app depends on SSR as a core runtime feature
+- Your app depends on SSR but cannot use Next.js standalone output
 - You need a polished desktop release pipeline with updates, signing, and native OS integrations out of the box
 - You want Docker to remain part of the shipped runtime model
 

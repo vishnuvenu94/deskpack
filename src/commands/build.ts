@@ -4,6 +4,7 @@ import chalk from "chalk";
 import { buildFrontend } from "../build/frontend.js";
 import { bundleBackend } from "../build/backend.js";
 import { copyRuntimeDependencies } from "../build/runtime-deps.js";
+import { copyNextStandaloneRuntime } from "../build/next-runtime.js";
 import { packageElectron } from "../build/package.js";
 import {
   inspectPlatformBuild,
@@ -37,13 +38,18 @@ export async function buildCommand(
     const detail =
       config.topologyEvidence.warnings.length > 0
         ? config.topologyEvidence.warnings.join(" ")
-        : "SSR/server runtime topology is not supported for deskpack static packaging.";
+        : 'SSR/server runtime topology is not supported unless it uses a supported standalone runtime such as Next.js output: "standalone".';
     throw new Error(detail);
   }
 
   if (config.topology === "unsupported") {
+    const detail =
+      config.topologyEvidence.warnings.length > 0
+        ? ` ${config.topologyEvidence.warnings.join(" ")}`
+        : "";
     throw new Error(
-      "Unsupported topology. Deskpack could not determine a reliable frontend/backend runtime layout.",
+      "Unsupported topology. Deskpack could not determine a reliable frontend/backend runtime layout." +
+        detail,
     );
   }
 
@@ -100,6 +106,29 @@ export async function buildCommand(
 
   // 1. Build frontend -------------------------------------------------------
   await buildFrontend(rootDir, config);
+
+  if (config.topology === "next-standalone-runtime") {
+    copyNextStandaloneRuntime(rootDir, config, serverDir);
+
+    fs.writeFileSync(
+      path.join(desktopDir, "main.cjs"),
+      generateElectronMain(config),
+    );
+
+    if (!options.skipPackage) {
+      log.blank();
+      await packageElectron(rootDir, targetPlatform);
+    }
+
+    log.blank();
+    log.success(chalk.bold("Build complete!"));
+    if (options.skipPackage) {
+      log.step("Bundled files", `.deskpack${path.sep}desktop${path.sep}server`);
+      log.dim("  Run without --skip-package to create installers");
+    }
+    log.blank();
+    return;
+  }
 
   // 2. Copy built frontend to server bundle ---------------------------------
   let frontendDistPath = path.resolve(rootDir, config.frontend.distDir);

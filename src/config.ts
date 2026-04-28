@@ -11,6 +11,7 @@ const TOPOLOGIES = new Set([
   "backend-serves-frontend",
   "frontend-static-separate",
   "frontend-only-static",
+  "next-standalone-runtime",
   "ssr-framework",
   "unsupported",
 ]);
@@ -59,6 +60,7 @@ export function loadConfig(rootDir: string): DeskpackConfig {
       raw.frontend.framework,
       raw.frontend.distDir,
       raw.frontend.tanstackStart ?? null,
+      raw.frontend.nextRuntime ?? null,
     );
 
     raw.topology = topology;
@@ -119,6 +121,7 @@ function validateConfig(
   );
   const frontendDevPort = readPort(frontendRaw.devPort, "frontend.devPort", false);
   const tanstackStart = readTanstackStart(frontendRaw.tanstackStart);
+  const nextRuntime = readNextRuntime(rootDir, frontendRaw.nextRuntime);
 
   const backendRaw = expectRecord(raw.backend, "backend");
   const backendPath = validateProjectRelativePath(
@@ -177,6 +180,7 @@ function validateConfig(
       distDir: frontendDistDir,
       devPort: frontendDevPort,
       ...(tanstackStart ? { tanstackStart } : {}),
+      ...(nextRuntime ? { nextRuntime } : {}),
     },
     backend: {
       path: backendPath,
@@ -199,6 +203,42 @@ function validateConfig(
     electron: {
       window: { width: windowWidth, height: windowHeight },
     },
+  };
+}
+
+function readNextRuntime(
+  rootDir: string,
+  value: unknown,
+): DeskpackConfig["frontend"]["nextRuntime"] {
+  if (value === undefined) return undefined;
+  const raw = expectRecord(value, "frontend.nextRuntime");
+  return {
+    mode: readEnum(
+      raw.mode,
+      "frontend.nextRuntime.mode",
+      new Set(["static-export", "standalone", "unsupported"]),
+    ) as NonNullable<DeskpackConfig["frontend"]["nextRuntime"]>["mode"],
+    standaloneDir: validateProjectRelativePath(
+      rootDir,
+      readString(raw.standaloneDir, "frontend.nextRuntime.standaloneDir"),
+      "frontend.nextRuntime.standaloneDir",
+    ),
+    serverFile: validateProjectRelativePath(
+      rootDir,
+      readString(raw.serverFile, "frontend.nextRuntime.serverFile"),
+      "frontend.nextRuntime.serverFile",
+    ),
+    staticDir: validateProjectRelativePath(
+      rootDir,
+      readString(raw.staticDir, "frontend.nextRuntime.staticDir"),
+      "frontend.nextRuntime.staticDir",
+    ),
+    publicDir: validateProjectRelativePath(
+      rootDir,
+      readString(raw.publicDir, "frontend.nextRuntime.publicDir"),
+      "frontend.nextRuntime.publicDir",
+    ),
+    warnings: readStringArray(raw.warnings, "frontend.nextRuntime.warnings"),
   };
 }
 

@@ -30,7 +30,7 @@ export async function devCommand(rootDir: string): Promise<void> {
     const detail =
       config.topologyEvidence.warnings.length > 0
         ? config.topologyEvidence.warnings.join(" ")
-        : "SSR/server runtime topology is not supported by deskpack dev.";
+        : 'SSR/server runtime topology is not supported by deskpack dev unless it uses a supported standalone runtime such as Next.js output: "standalone".';
     throw new Error(detail);
   }
 

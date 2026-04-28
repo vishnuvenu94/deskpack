@@ -42,6 +42,16 @@ test("detects Next SSR/server runtime as unsupported", () => {
   assert.equal(project.topology, "ssr-framework");
 });
 
+test("detects Next standalone runtime as supported", () => {
+  const project = detectProject(fixturePath("next-standalone-runtime"));
+  assert.equal(project.frontend.framework, "next");
+  assert.equal(project.topology, "next-standalone-runtime");
+  assert.equal(project.frontend.nextRuntime?.mode, "standalone");
+  assert.ok(
+    project.frontend.nextRuntime?.serverFile.replace(/\\/g, "/").endsWith(".next/standalone/server.js"),
+  );
+});
+
 test("detects monorepo workspace frontend/backend", () => {
   const project = detectProject(fixturePath("monorepo-npm"));
   assert.equal(project.monorepo.type, "npm");

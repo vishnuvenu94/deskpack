@@ -83,13 +83,18 @@ export async function initCommand(
       project.topologyEvidence.warnings.length > 0
         ? project.topologyEvidence.warnings.join(" ")
         : "SSR/server runtime projects are not supported for deskpack static packaging. " +
-          "For Next.js, configure static export (output: \"export\") and run init again.";
+          "For Next.js, configure static export (output: \"export\") or standalone output (output: \"standalone\") and run init again.";
     throw new Error(detail);
   }
 
   if (project.topology === "unsupported") {
+    const detail =
+      project.topologyEvidence.warnings.length > 0
+        ? ` ${project.topologyEvidence.warnings.join(" ")}`
+        : "";
     throw new Error(
-      "Could not determine a supported project topology. Ensure your backend serves frontend assets or export the frontend as static files.",
+      "Could not determine a supported project topology. Ensure your backend serves frontend assets, export the frontend as static files, or use a supported standalone runtime." +
+        detail,
     );
   }
 
@@ -162,6 +167,9 @@ export async function initCommand(
       devPort: project.frontend.devPort,
       ...(project.frontend.tanstackStart
         ? { tanstackStart: project.frontend.tanstackStart }
+        : {}),
+      ...(project.frontend.nextRuntime
+        ? { nextRuntime: project.frontend.nextRuntime }
         : {}),
     },
     backend: {

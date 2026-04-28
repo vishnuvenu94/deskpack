@@ -5,7 +5,9 @@ import type {
   TopologyEvidence,
   FrontendFramework,
   TanstackStartInfo,
+  NextRuntimeInfo,
 } from "../types.js";
+import { isNextStaticExport } from "./next.js";
 
 /** Patterns that indicate the backend serves static files. */
 const STATIC_SERVING_PATTERNS = [
@@ -83,6 +85,7 @@ export function detectTopology(
   frontendFramework: FrontendFramework,
   frontendDistDir: string,
   tanstackStart?: TanstackStartInfo | null,
+  nextRuntime?: NextRuntimeInfo | null,
 ): { topology: Topology; evidence: TopologyEvidence } {
   const evidence: TopologyEvidence = {
     staticServingPatterns: [],
@@ -103,11 +106,41 @@ export function detectTopology(
     };
   }
 
+  if (frontendFramework === "next" && nextRuntime?.mode === "unsupported") {
+    evidence.warnings.push(...nextRuntime.warnings);
+    return {
+      topology: "ssr-framework",
+      evidence,
+    };
+  }
+
+  if (
+    backendPath &&
+    backendEntry &&
+    frontendFramework === "next" &&
+    nextRuntime?.mode === "standalone"
+  ) {
+    evidence.warnings.push(
+      "Next.js standalone runtime with a separately detected backend is not supported yet. Package the backend behind Next routes or use a static frontend + API backend topology.",
+    );
+    return {
+      topology: "unsupported",
+      evidence,
+    };
+  }
+
   // If no backend, it's frontend-only
   if (!backendPath || !backendEntry) {
+    if (frontendFramework === "next" && nextRuntime?.mode === "standalone") {
+      return {
+        topology: "next-standalone-runtime",
+        evidence,
+      };
+    }
+
     if (frontendFramework === "next" && !isNextStaticExport(rootDir, frontendPath)) {
       evidence.warnings.push(
-        "Next.js detected without static export configuration (output: \"export\").",
+        'Next.js detected without static export or standalone runtime configuration (output: "export" or output: "standalone").',
       );
       return {
         topology: "ssr-framework",
@@ -142,6 +175,7 @@ export function detectTopology(
     evidence,
     frontendFramework,
     frontendPath,
+    nextRuntime ?? null,
   );
 
   return { topology, evidence };
@@ -155,6 +189,7 @@ function classifyTopology(
   evidence: TopologyEvidence,
   frontendFramework: FrontendFramework,
   frontendPath: string,
+  nextRuntime: NextRuntimeInfo | null,
 ): Topology {
   // If SSR patterns found, it's SSR framework (unsupported)
   if (evidence.ssrPatterns.length > 0) {
@@ -162,12 +197,17 @@ function classifyTopology(
   }
 
   // Next.js support boundary:
-  // - static export (output: "export") => supported
-  // - SSR / server runtime => unsupported
+  // - static export (output: "export") => supported as static output
+  // - standalone output => supported when it is the only server runtime
+  // - other SSR / server runtime => unsupported
   if (frontendFramework === "next") {
+    if (nextRuntime?.mode === "standalone") {
+      return "next-standalone-runtime";
+    }
+
     if (!isNextStaticExport(rootDir, frontendPath)) {
       evidence.warnings.push(
-        "Next.js detected without static export configuration (output: \"export\").",
+        'Next.js detected without static export or standalone runtime configuration (output: "export" or output: "standalone").',
       );
       return "ssr-framework";
     }
@@ -239,41 +279,11 @@ export function topologyDescription(topology: Topology): string {
       return "Frontend builds to separate static dir, backend is API-only";
     case "frontend-only-static":
       return "Frontend-only static application (no backend)";
+    case "next-standalone-runtime":
+      return "Next.js standalone server runtime";
     case "ssr-framework":
       return "SSR framework detected (not yet supported)";
     case "unsupported":
       return "Could not determine topology — runtime verification required";
   }
-}
-
-function isNextStaticExport(rootDir: string, frontendPath: string): boolean {
-  const frontendDir = path.join(rootDir, frontendPath);
-  const nextConfigCandidates = [
-    "next.config.js",
-    "next.config.mjs",
-    "next.config.ts",
-    "next.config.cjs",
-  ];
-
-  for (const configName of nextConfigCandidates) {
-    const configPath = path.join(frontendDir, configName);
-    if (!fs.existsSync(configPath)) continue;
-    const content = fs.readFileSync(configPath, "utf-8");
-    if (/output\s*:\s*["']export["']/.test(content)) {
-      return true;
-    }
-  }
-
-  const packageJsonPath = path.join(frontendDir, "package.json");
-  if (fs.existsSync(packageJsonPath)) {
-    const pkg = JSON.parse(fs.readFileSync(packageJsonPath, "utf-8")) as {
-      scripts?: Record<string, string>;
-    };
-    const buildScript = pkg.scripts?.build ?? "";
-    if (/\bnext\s+export\b/.test(buildScript)) {
-      return true;
-    }
-  }
-
-  return false;
 }

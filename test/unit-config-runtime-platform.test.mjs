@@ -194,6 +194,26 @@ test("frontend-only-static topology has no API proxy when backendPort is 0", () 
   assert.match(runtime, /startStaticServer\(PREFERRED_FRONTEND_PORT, 0\)/);
 });
 
+test("generated electron runtime starts Next standalone server", () => {
+  const config = sampleConfig();
+  config.frontend.framework = "next";
+  config.frontend.nextRuntime = {
+    mode: "standalone",
+    standaloneDir: ".next/standalone",
+    serverFile: ".next/standalone/server.js",
+    staticDir: ".next/static",
+    publicDir: "public",
+    warnings: [],
+  };
+  config.topology = "next-standalone-runtime";
+
+  const runtime = generateElectronMain(config);
+  assert.match(runtime, /startNextStandaloneServer/);
+  assert.match(runtime, /TOPOLOGY === "next-standalone-runtime"/);
+  assert.match(runtime, /HOSTNAME: "127\.0\.0\.1"/);
+  assert.match(runtime, /serviceName: "deskpack-next"/);
+});
+
 test("loadConfig defaults apiPrefixes to [\"/api\"] when missing", () => {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "deskpack-config-test-"));
   const configPath = path.join(tmpDir, "deskpack.config.json");

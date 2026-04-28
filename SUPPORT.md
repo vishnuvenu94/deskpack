@@ -17,6 +17,6 @@
 
 ## What Maintainers May Decline
 
-- Requests for unsupported SSR or runtime-server topologies
+- Requests for unsupported SSR or runtime-server topologies, including Next.js apps without standalone output
 - Environment-specific issues without a reproduction
 - Packaging expectations that depend on Docker being shipped as part of the desktop runtime

@@ -9,6 +9,7 @@ import {
 } from "./backend.js";
 import { detectTopology } from "./topology.js";
 import { analyzeTanstackStart } from "./tanstack-start.js";
+import { analyzeNextRuntime } from "./next.js";
 import type { ProjectConfig, FrontendInfo, BackendInfo } from "../types.js";
 
 /**
@@ -120,6 +121,11 @@ export function detectProject(rootDir: string): ProjectConfig {
     }
   }
 
+  const nextRuntime = analyzeNextRuntime(rootDir, frontendResolved);
+  if (nextRuntime) {
+    frontendResolved = { ...frontendResolved, nextRuntime };
+  }
+
   // ---- Detect API prefixes for proxy ---------------------------------------
   if (backend.path.length > 0 && frontendResolved) {
     const proxyConfig = detectApiPrefixes(
@@ -143,6 +149,7 @@ export function detectProject(rootDir: string): ProjectConfig {
     frontendResolved.framework,
     frontendResolved.distDir,
     frontendResolved.tanstackStart ?? null,
+    frontendResolved.nextRuntime ?? null,
   );
 
   return {

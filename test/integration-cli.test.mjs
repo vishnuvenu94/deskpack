@@ -97,7 +97,26 @@ test("deskpack init refuses Next SSR/server runtime projects early", () => {
   const output = commandOutput(result);
 
   assert.notEqual(result.status, 0, output);
-  assert.match(output, /static export|output:\s*"export"/i);
+  assert.match(output, /standalone|static export|output:\s*"export"/i);
+});
+
+test("deskpack build --skip-package copies Next standalone runtime", () => {
+  const projectDir = copyFixtureToTemp("next-standalone-runtime");
+
+  const initResult = runCli(["init", "--yes", "--force"], projectDir, {
+    DESKPACK_SKIP_ELECTRON_INSTALL: "1",
+  });
+  assert.equal(initResult.status, 0, commandOutput(initResult));
+
+  const buildResult = runCli(["build", "--skip-package"], projectDir);
+  assert.equal(buildResult.status, 0, commandOutput(buildResult));
+
+  const nextDir = path.join(projectDir, ".deskpack", "desktop", "server", "next");
+  const serverFile = path.join(nextDir, "server.js");
+  assert.ok(fs.existsSync(serverFile));
+  assert.ok(fs.existsSync(path.join(nextDir, ".next", "static", "chunks", "main.js")));
+  assert.ok(fs.existsSync(path.join(nextDir, "public", "hello.txt")));
+  assert.match(fs.readFileSync(serverFile, "utf-8"), /next standalone ssr/);
 });
 
 test("deskpack init refuses TanStack Start without static mode", () => {
