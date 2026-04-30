@@ -88,3 +88,30 @@ try {
     throw error;
   }
 }
+
+const scopedSourcePkgDir = path.join(root, "node_modules", "@libsql", "client");
+const scopedRuntimePkgDir = path.join(appRoot, "node_modules", "@libsql", "client");
+fs.mkdirSync(scopedSourcePkgDir, { recursive: true });
+fs.mkdirSync(scopedRuntimePkgDir, { recursive: true });
+fs.writeFileSync(
+  path.join(scopedSourcePkgDir, "package.json"),
+  JSON.stringify({ name: "@libsql/client", version: "1.0.0" }),
+);
+fs.writeFileSync(
+  path.join(scopedRuntimePkgDir, "package.json"),
+  JSON.stringify({ name: "@libsql/client", version: "1.0.0" }),
+);
+
+const tracedScopedDir = path.join(tracedNodeModules, "@libsql");
+fs.mkdirSync(tracedScopedDir, { recursive: true });
+const scopedSymlink = path.join(tracedScopedDir, "client-hash123");
+try {
+  fs.symlinkSync(
+    path.relative(path.dirname(scopedSymlink), scopedSourcePkgDir),
+    scopedSymlink,
+  );
+} catch (error) {
+  if (/** @type {NodeJS.ErrnoException} */ (error)?.code !== "EEXIST") {
+    throw error;
+  }
+}

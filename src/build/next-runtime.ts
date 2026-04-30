@@ -73,10 +73,7 @@ function repairTracedNodeModuleSymlinks(destination: string): void {
   const tracedNodeModulesDir = path.join(destination, ".next", "node_modules");
   if (!fs.existsSync(tracedNodeModulesDir)) return;
 
-  for (const entry of fs.readdirSync(tracedNodeModulesDir, { withFileTypes: true })) {
-    if (!entry.isSymbolicLink()) continue;
-
-    const symlinkPath = path.join(tracedNodeModulesDir, entry.name);
+  for (const symlinkPath of tracedNodeModuleSymlinks(tracedNodeModulesDir)) {
     const packageName = packageNameFromNodeModulesTarget(fs.readlinkSync(symlinkPath, "utf8"));
     if (!packageName) continue;
 
@@ -89,6 +86,26 @@ function repairTracedNodeModuleSymlinks(destination: string): void {
       symlinkPath,
     );
   }
+}
+
+function tracedNodeModuleSymlinks(nodeModulesDir: string): string[] {
+  const links: string[] = [];
+
+  for (const entry of fs.readdirSync(nodeModulesDir, { withFileTypes: true })) {
+    const fullPath = path.join(nodeModulesDir, entry.name);
+    if (entry.isSymbolicLink()) {
+      links.push(fullPath);
+      continue;
+    }
+
+    if (!entry.isDirectory() || !entry.name.startsWith("@")) continue;
+    for (const scopedEntry of fs.readdirSync(fullPath, { withFileTypes: true })) {
+      const scopedPath = path.join(fullPath, scopedEntry.name);
+      if (scopedEntry.isSymbolicLink()) links.push(scopedPath);
+    }
+  }
+
+  return links;
 }
 
 function packageNameFromNodeModulesTarget(target: string): string | null {

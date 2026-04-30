@@ -213,6 +213,11 @@ test("deskpack build --skip-package copies Next standalone runtime", () => {
     "../../node_modules/better-sqlite3",
     "Next traced package aliases should be repaired to the copied runtime package",
   );
+  assert.strictEqual(
+    fs.readlinkSync(path.join(nextDir, ".next", "node_modules", "@libsql", "client-hash123")),
+    "../../../node_modules/@libsql/client",
+    "Next traced scoped package aliases should be repaired to the copied runtime package",
+  );
 
   const sourceBetterSqliteBinary = path.join(
     projectDir,
