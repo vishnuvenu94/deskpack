@@ -770,9 +770,12 @@ async function startBundledBackend(preferredPort) {
 async function startNextStandaloneServer(preferredPort) {
   const nextPort = await resolvePort(preferredPort, "Next.js");
   const nextDir = path.join(process.resourcesPath, "server", "next");
-  const serverPath = path.join(nextDir, "server.js");
+  const launcherPath = path.join(nextDir, "deskpack-next-launcher.cjs");
+  const serverPath = fs.existsSync(launcherPath)
+    ? launcherPath
+    : path.join(nextDir, "server.js");
   if (!fs.existsSync(serverPath)) {
-    throw new Error("Next.js standalone server missing: " + serverPath);
+    throw new Error("Next.js standalone server missing: " + path.join(nextDir, "server.js"));
   }
 
   let stderrBuffer = "";

@@ -189,10 +189,14 @@ test("deskpack build --skip-package copies Next standalone runtime", () => {
 
   const nextDir = path.join(projectDir, ".deskpack", "desktop", "server", "next");
   const serverFile = path.join(nextDir, "server.js");
+  const launcherFile = path.join(nextDir, "deskpack-next-launcher.cjs");
   assert.ok(fs.existsSync(serverFile));
+  assert.ok(fs.existsSync(launcherFile));
   assert.ok(fs.existsSync(path.join(nextDir, ".next", "static", "chunks", "main.js")));
   assert.ok(fs.existsSync(path.join(nextDir, "public", "hello.txt")));
   assert.match(fs.readFileSync(serverFile, "utf-8"), /next standalone ssr/);
+  assert.match(fs.readFileSync(launcherFile, "utf-8"), /sqlite-preload\.cjs/);
+  assert.match(fs.readFileSync(launcherFile, "utf-8"), /require\("\.\/server\.js"\)/);
 
   const tracedLink = path.join(nextDir, ".next", "node_modules", "trace-native-pkg-hash123");
   const resolvedPkg = path.join(nextDir, "node_modules", "trace-native-pkg");
@@ -203,6 +207,11 @@ test("deskpack build --skip-package copies Next standalone runtime", () => {
     fs.realpathSync(tracedLink),
     fs.realpathSync(resolvedPkg),
     "Symlink should resolve to the copied package tree",
+  );
+  assert.strictEqual(
+    fs.readlinkSync(path.join(nextDir, ".next", "node_modules", "better-sqlite3-hash123")),
+    "../../node_modules/better-sqlite3",
+    "Next traced package aliases should be repaired to the copied runtime package",
   );
 
   const sourceBetterSqliteBinary = path.join(

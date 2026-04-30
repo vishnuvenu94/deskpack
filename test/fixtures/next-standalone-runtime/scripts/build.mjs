@@ -80,7 +80,7 @@ writeBetterSqlitePackage(runtimeBetterSqliteDir, "runtime-host");
 const betterSqliteSymlink = path.join(tracedNodeModules, "better-sqlite3-hash123");
 try {
   fs.symlinkSync(
-    path.relative(path.dirname(betterSqliteSymlink), runtimeBetterSqliteDir),
+    path.relative(path.dirname(betterSqliteSymlink), sourceBetterSqliteDir),
     betterSqliteSymlink,
   );
 } catch (error) {

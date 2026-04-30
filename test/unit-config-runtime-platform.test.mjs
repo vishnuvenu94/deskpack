@@ -216,6 +216,7 @@ test("generated electron runtime starts Next standalone server", () => {
   assert.match(runtime, /startNextStandaloneServer/);
   assert.match(runtime, /TOPOLOGY === "next-standalone-runtime"/);
   assert.match(runtime, /HOSTNAME: "127\.0\.0\.1"/);
+  assert.match(runtime, /deskpack-next-launcher\.cjs/);
   assert.match(runtime, /serviceName: "deskpack-next"/);
 });
 
