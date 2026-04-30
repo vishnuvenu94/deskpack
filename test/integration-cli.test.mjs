@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
+import { spawnSync } from "node:child_process";
 import { commandOutput, copyFixtureToTemp, runCli } from "./helpers.mjs";
 
 test("deskpack init creates deskpack.config.json and .deskpack workspace", () => {
@@ -64,6 +65,47 @@ test("deskpack build --skip-package copies managed SQLite database assets", () =
     fs.readFileSync(path.join(databaseDir, "template.db"), "utf-8"),
     "seed sqlite template\n",
   );
+});
+
+test("deskpack build emits SQLite preload for computed hardcoded database paths", () => {
+  const projectDir = copyFixtureToTemp("sqlite-computed-hardcoded-path");
+
+  const initResult = runCli(["init", "--yes", "--force"], projectDir, {
+    DESKPACK_SKIP_ELECTRON_INSTALL: "1",
+  });
+  assert.equal(initResult.status, 0, commandOutput(initResult));
+
+  const buildResult = runCli(["build", "--skip-package"], projectDir);
+  assert.equal(buildResult.status, 0, commandOutput(buildResult));
+
+  const databaseDir = path.join(projectDir, ".deskpack", "desktop", "server", "database");
+  const preloadPath = path.join(databaseDir, "sqlite-preload.cjs");
+  const preload = fs.readFileSync(preloadPath, "utf-8");
+
+  assert.ok(fs.existsSync(path.join(databaseDir, "template.db")));
+  assert.match(preload, /data\/app\.db/);
+  assert.match(preload, /better-sqlite3/);
+});
+
+test("deskpack build creates SQLite template from SQL migrations when no seed DB exists", () => {
+  const projectDir = copyFixtureToTemp("sqlite-migrations-template");
+
+  const initResult = runCli(["init", "--yes", "--force"], projectDir, {
+    DESKPACK_SKIP_ELECTRON_INSTALL: "1",
+  });
+  assert.equal(initResult.status, 0, commandOutput(initResult));
+
+  const buildResult = runCli(["build", "--skip-package"], projectDir);
+  assert.equal(buildResult.status, 0, commandOutput(buildResult));
+
+  const templatePath = path.join(projectDir, ".deskpack", "desktop", "server", "database", "template.db");
+  assert.ok(fs.existsSync(templatePath));
+
+  const sqliteResult = spawnSync("sqlite3", [templatePath, ".tables"], {
+    encoding: "utf-8",
+  });
+  assert.equal(sqliteResult.status, 0, sqliteResult.stderr);
+  assert.match(sqliteResult.stdout, /todos/);
 });
 
 test("deskpack init captures hardcoded Nest backend port and health route", () => {
@@ -140,6 +182,7 @@ test("deskpack build --skip-package copies Next standalone runtime", () => {
     DESKPACK_SKIP_ELECTRON_INSTALL: "1",
   });
   assert.equal(initResult.status, 0, commandOutput(initResult));
+  installFakeElectronRebuild(projectDir);
 
   const buildResult = runCli(["build", "--skip-package"], projectDir);
   assert.equal(buildResult.status, 0, commandOutput(buildResult));
@@ -161,6 +204,25 @@ test("deskpack build --skip-package copies Next standalone runtime", () => {
     fs.realpathSync(resolvedPkg),
     "Symlink should resolve to the copied package tree",
   );
+
+  const sourceBetterSqliteBinary = path.join(
+    projectDir,
+    "node_modules",
+    "better-sqlite3",
+    "build",
+    "Release",
+    "better_sqlite3.node",
+  );
+  const runtimeBetterSqliteBinary = path.join(
+    nextDir,
+    "node_modules",
+    "better-sqlite3",
+    "build",
+    "Release",
+    "better_sqlite3.node",
+  );
+  assert.equal(fs.readFileSync(sourceBetterSqliteBinary, "utf-8"), "source-host");
+  assert.equal(fs.readFileSync(runtimeBetterSqliteBinary, "utf-8"), "electron-abi");
 });
 
 test("deskpack init refuses TanStack Start without static mode", () => {
@@ -258,6 +320,34 @@ test("deskpack build --skip-package works for backend-serves-frontend topology",
   assert.ok(fs.existsSync(path.join(serverDir, "src", "server.mjs")));
 });
 
+test("deskpack build recovers stale backend-serves config for API-only backend", () => {
+  const projectDir = copyFixtureToTemp("hono-api-only-static-separate");
+
+  const initResult = runCli(["init", "--yes", "--force"], projectDir, {
+    DESKPACK_SKIP_ELECTRON_INSTALL: "1",
+  });
+  assert.equal(initResult.status, 0, commandOutput(initResult));
+
+  const configPath = path.join(projectDir, "deskpack.config.json");
+  const config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+  assert.equal(config.topology, "frontend-static-separate");
+  config.topology = "backend-serves-frontend";
+  config.topologyEvidence.staticServingPatterns = ["stale c.body match"];
+  fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+
+  const buildResult = runCli(["build", "--skip-package"], projectDir);
+  assert.equal(buildResult.status, 0, commandOutput(buildResult));
+
+  const serverDir = path.join(projectDir, ".deskpack", "desktop", "server");
+  const mainCjs = fs.readFileSync(
+    path.join(projectDir, ".deskpack", "desktop", "main.cjs"),
+    "utf-8",
+  );
+  assert.ok(fs.existsSync(path.join(serverDir, "web-dist", "index.html")));
+  assert.match(mainCjs, /TOPOLOGY = "frontend-static-separate"/);
+  assert.match(mainCjs, /startStaticServer\(PREFERRED_FRONTEND_PORT, backendPort\)/);
+});
+
 test("deskpack build refuses unsupported cross-platform packaging with reasons", () => {
   const projectDir = copyFixtureToTemp("frontend-only-static");
 
@@ -284,3 +374,28 @@ test("deskpack build refuses unsupported cross-platform packaging with reasons",
   assert.match(output, /Cannot create this platform build reliably/i);
   assert.match(output, /Build this installer on/i);
 });
+
+function installFakeElectronRebuild(projectDir) {
+  const desktopDir = path.join(projectDir, ".deskpack", "desktop");
+  const electronDir = path.join(desktopDir, "node_modules", "electron");
+  const binDir = path.join(desktopDir, "node_modules", ".bin");
+  const binPath = path.join(binDir, process.platform === "win32" ? "electron-rebuild.cmd" : "electron-rebuild");
+
+  fs.mkdirSync(electronDir, { recursive: true });
+  fs.mkdirSync(binDir, { recursive: true });
+  fs.writeFileSync(path.join(electronDir, "package.json"), JSON.stringify({ version: "33.4.11" }));
+  fs.writeFileSync(
+    binPath,
+    [
+      "#!/usr/bin/env node",
+      "const fs = require('node:fs');",
+      "const path = require('node:path');",
+      "const args = process.argv.slice(2);",
+      "const moduleDir = args[args.indexOf('--module-dir') + 1];",
+      "const binary = path.join(moduleDir, 'node_modules', 'better-sqlite3', 'build', 'Release', 'better_sqlite3.node');",
+      "fs.writeFileSync(binary, 'electron-abi');",
+      "",
+    ].join("\n"),
+  );
+  fs.chmodSync(binPath, 0o755);
+}

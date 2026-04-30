@@ -30,6 +30,35 @@ const KNOWN_NATIVE_DEPS: string[] = [
   "node-gyp",
 ];
 
+const ENTRY_EXTENSIONS = ["ts", "js", "mjs", "cjs"];
+const ENTRY_FILE_PATTERN = /\.(?:ts|js|mjs|cjs)$/;
+const SCRIPT_RUNNERS = new Set([
+  "node",
+  "tsx",
+  "ts-node",
+  "bun",
+  "deno",
+  "nodemon",
+  "vite-node",
+]);
+const RUNNER_SUBCOMMANDS = new Set(["dev", "run", "serve", "start", "watch"]);
+const OPTIONS_WITH_VALUES = new Set([
+  "--config",
+  "--env-file",
+  "--import",
+  "--inspect",
+  "--inspect-brk",
+  "--loader",
+  "--require",
+  "--watch-path",
+  "--watch",
+  "-c",
+  "-e",
+  "-I",
+  "-r",
+  "-w",
+]);
+
 /**
  * Attempt to detect a Node.js backend server in the given path.
  *
@@ -64,6 +93,13 @@ export function detectBackend(
 
   // --- Entry point ---------------------------------------------------------
   const entry = detectEntryPoint(fullPath, searchPath, pkg);
+  if (!entry) {
+    throw new Error(
+      `Could not detect a backend entry point for ${path.relative(process.cwd(), fullPath) || "."}. ` +
+        `Detected ${framework} dependencies, but none of these files exist: ` +
+        backendEntryCandidates(fullPath).map((candidate) => path.relative(fullPath, candidate)).join(", "),
+    );
+  }
   const entryAbsolutePath = path.resolve(rootDir, entry);
 
   // --- Port ----------------------------------------------------------------
@@ -165,51 +201,27 @@ function detectEntryPoint(
   fullPath: string,
   searchPath: string,
   pkg: Record<string, unknown>,
-): string {
+): string | null {
   // 1. Explicit `main` field
-  if (typeof pkg.main === "string") {
+  if (typeof pkg.main === "string" && entryFileExists(fullPath, pkg.main)) {
     return path.join(searchPath, pkg.main);
   }
 
   // 2. Parse scripts for a file path
   const scripts = pkg.scripts as Record<string, string> | undefined;
   const scriptText = [scripts?.start, scripts?.dev].filter(Boolean).join(" ");
-
-  const patterns = [
-    /(?:tsx?|ts-node|node)\s+(?:--[^\s]+\s+)*([^\s]+\.(?:ts|js|mjs))/,
-    /nodemon\s+(?:--[^\s]+\s+)*([^\s]+\.(?:ts|js|mjs))/,
-  ];
-
-  for (const pattern of patterns) {
-    const match = scriptText.match(pattern);
-    if (match) return path.join(searchPath, match[1]);
-  }
+  const scriptEntry = detectScriptEntry(fullPath, scriptText);
+  if (scriptEntry) return path.join(searchPath, scriptEntry);
 
   // 3. Common file name conventions
-  const candidates = [
-    "src/index.ts",
-    "src/index.js",
-    "src/server.ts",
-    "src/server.js",
-    "src/app.ts",
-    "src/app.js",
-    "src/main.ts",
-    "src/main.js",
-    "index.ts",
-    "index.js",
-    "server.ts",
-    "server.js",
-    "app.ts",
-    "app.js",
-  ];
-
-  for (const candidate of candidates) {
-    if (fs.existsSync(path.join(fullPath, candidate))) {
-      return path.join(searchPath, candidate);
+  const framework = detectBackendFramework(pkg);
+  for (const candidate of backendEntryCandidates(fullPath, undefined, framework)) {
+    if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
+      return path.join(searchPath, path.relative(fullPath, candidate));
     }
   }
 
-  return path.join(searchPath, "src/index.ts");
+  return null;
 }
 
 function detectServerPort(
@@ -268,23 +280,206 @@ function detectHealthCheckPath(
 
 function backendEntryCandidates(
   packageDir: string,
-  entryAbsolutePath: string,
+  entryAbsolutePath?: string,
+  framework: BackendFramework = "unknown",
 ): string[] {
+  const relativeCandidates = framework === "nestjs"
+    ? nestBackendEntryCandidates()
+    : standardBackendEntryCandidates();
+
   return [...new Set([
-    entryAbsolutePath,
-    path.join(packageDir, "src/index.ts"),
-    path.join(packageDir, "src/index.js"),
-    path.join(packageDir, "src/server.ts"),
-    path.join(packageDir, "src/server.js"),
-    path.join(packageDir, "src/main.ts"),
-    path.join(packageDir, "src/main.js"),
-    path.join(packageDir, "index.ts"),
-    path.join(packageDir, "index.js"),
-    path.join(packageDir, "server.ts"),
-    path.join(packageDir, "server.js"),
-    path.join(packageDir, "main.ts"),
-    path.join(packageDir, "main.js"),
+    ...(entryAbsolutePath ? [entryAbsolutePath] : []),
+    ...relativeCandidates.map((candidate) => path.join(packageDir, candidate)),
   ])];
+}
+
+function detectBackendFramework(pkg: Record<string, unknown>): BackendFramework {
+  const allDeps: Record<string, string> = {
+    ...(isRecord(pkg.dependencies) ? pkg.dependencies : {}),
+    ...(isRecord(pkg.devDependencies) ? pkg.devDependencies : {}),
+  };
+
+  for (const [dep, fw] of Object.entries(BACKEND_DEPS)) {
+    if (dep in allDeps) return fw;
+  }
+
+  return "unknown";
+}
+
+function detectScriptEntry(packageDir: string, scriptText: string): string | null {
+  if (!scriptText.trim()) return null;
+
+  const tokens = tokenizeScript(scriptText);
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = path.basename(tokens[index]);
+    const normalizedRunner = token.replace(/\.(?:cmd|exe)$/i, "");
+
+    if (normalizedRunner === "nest" && tokens[index + 1] === "start") {
+      const nestEntry = findExistingRelativeCandidate(packageDir, nestBackendEntryCandidates());
+      if (nestEntry) return nestEntry;
+    }
+
+    if (!SCRIPT_RUNNERS.has(normalizedRunner)) continue;
+
+    const entry = findEntryAfterRunner(packageDir, tokens, index + 1);
+    if (entry) return entry;
+  }
+
+  return null;
+}
+
+function findEntryAfterRunner(
+  packageDir: string,
+  tokens: string[],
+  startIndex: number,
+): string | null {
+  for (let index = startIndex; index < tokens.length; index += 1) {
+    const token = normalizeScriptToken(tokens[index]);
+    if (!token) continue;
+
+    if (OPTIONS_WITH_VALUES.has(token)) {
+      index += 1;
+      continue;
+    }
+
+    if (token.startsWith("-")) continue;
+    if (RUNNER_SUBCOMMANDS.has(token)) continue;
+
+    if (isEntryFileToken(token) && entryFileExists(packageDir, token)) {
+      return normalizeRelativePath(token);
+    }
+  }
+
+  return null;
+}
+
+function tokenizeScript(scriptText: string): string[] {
+  const tokens: string[] = [];
+  let current = "";
+
+  for (let index = 0; index < scriptText.length; index += 1) {
+    const char = scriptText[index];
+
+    if (char === "\"" || char === "'") {
+      index = readQuotedScript(scriptText, index + 1, char, tokens);
+      current = "";
+      continue;
+    }
+
+    if (/\s/.test(char)) {
+      if (current) {
+        tokens.push(current);
+        current = "";
+      }
+      continue;
+    }
+
+    if (";&|()".includes(char)) {
+      if (current) {
+        tokens.push(current);
+        current = "";
+      }
+      continue;
+    }
+
+    current += char;
+  }
+
+  if (current) tokens.push(current);
+  return tokens.map(normalizeScriptToken).filter(Boolean);
+}
+
+function readQuotedScript(
+  scriptText: string,
+  startIndex: number,
+  quote: string,
+  tokens: string[],
+): number {
+  let quoted = "";
+  let index = startIndex;
+
+  for (; index < scriptText.length; index += 1) {
+    if (scriptText[index] === quote) break;
+    quoted += scriptText[index];
+  }
+
+  tokens.push(...tokenizeScript(quoted));
+  return index;
+}
+
+function normalizeScriptToken(token: string): string {
+  return token
+    .trim()
+    .replace(/^cross-env$/, "")
+    .replace(/^env$/, "")
+    .replace(/^['"]|['"]$/g, "")
+    .replace(/,$/, "");
+}
+
+function isEntryFileToken(token: string): boolean {
+  if (/^(?:https?:|npm:|jsr:)/.test(token)) return false;
+  if (!ENTRY_FILE_PATTERN.test(token)) return false;
+  return !/\.(?:tsx|jsx)$/.test(token);
+}
+
+function entryFileExists(packageDir: string, relativePath: string): boolean {
+  const candidate = path.resolve(packageDir, normalizeRelativePath(relativePath));
+  return fs.existsSync(candidate) && fs.statSync(candidate).isFile();
+}
+
+function findExistingRelativeCandidate(
+  packageDir: string,
+  relativeCandidates: string[],
+): string | null {
+  for (const candidate of relativeCandidates) {
+    if (entryFileExists(packageDir, candidate)) return candidate;
+  }
+
+  return null;
+}
+
+function standardBackendEntryCandidates(): string[] {
+  return entryCandidateMatrix([
+    "server",
+    "src",
+    "backend/src",
+    "backend",
+    "api",
+    ".",
+    "dist",
+    "build",
+  ], [
+    "index",
+    "server",
+    "main",
+    "app",
+  ]);
+}
+
+function nestBackendEntryCandidates(): string[] {
+  return [
+    ...entryCandidateMatrix(["src"], ["main", "index", "server", "app"]),
+    ...entryCandidateMatrix(["dist", "build"], ["main", "index", "server", "app"]),
+    ...standardBackendEntryCandidates(),
+  ];
+}
+
+function entryCandidateMatrix(dirs: string[], names: string[]): string[] {
+  const candidates: string[] = [];
+
+  for (const dir of dirs) {
+    for (const name of names) {
+      for (const extension of ENTRY_EXTENSIONS) {
+        candidates.push(dir === "." ? `${name}.${extension}` : path.join(dir, `${name}.${extension}`));
+      }
+    }
+  }
+
+  return candidates;
+}
+
+function normalizeRelativePath(value: string): string {
+  return value.replace(/^\.?\//, "").split(/[\\/]/).join(path.sep);
 }
 
 function detectPortFromContent(content: string): number | null {
@@ -336,6 +531,10 @@ function collectCodeFiles(
 
   visit(packageDir);
   return [...files];
+}
+
+function isRecord(value: unknown): value is Record<string, string> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function detectNestHealthPath(content: string): string | null {

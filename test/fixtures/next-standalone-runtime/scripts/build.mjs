@@ -61,3 +61,30 @@ try {
     throw error;
   }
 }
+
+function writeBetterSqlitePackage(packageDir, marker) {
+  const binaryPath = path.join(packageDir, "build", "Release", "better_sqlite3.node");
+  fs.mkdirSync(path.dirname(binaryPath), { recursive: true });
+  fs.writeFileSync(
+    path.join(packageDir, "package.json"),
+    JSON.stringify({ name: "better-sqlite3", version: "1.0.0" }),
+  );
+  fs.writeFileSync(binaryPath, marker);
+}
+
+const sourceBetterSqliteDir = path.join(root, "node_modules", "better-sqlite3");
+const runtimeBetterSqliteDir = path.join(appRoot, "node_modules", "better-sqlite3");
+writeBetterSqlitePackage(sourceBetterSqliteDir, "source-host");
+writeBetterSqlitePackage(runtimeBetterSqliteDir, "runtime-host");
+
+const betterSqliteSymlink = path.join(tracedNodeModules, "better-sqlite3-hash123");
+try {
+  fs.symlinkSync(
+    path.relative(path.dirname(betterSqliteSymlink), runtimeBetterSqliteDir),
+    betterSqliteSymlink,
+  );
+} catch (error) {
+  if (/** @type {NodeJS.ErrnoException} */ (error)?.code !== "EEXIST") {
+    throw error;
+  }
+}

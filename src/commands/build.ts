@@ -6,6 +6,7 @@ import { bundleBackend } from "../build/backend.js";
 import { copyRuntimeDependencies } from "../build/runtime-deps.js";
 import { copyNextStandaloneRuntime } from "../build/next-runtime.js";
 import { copyDatabaseAssets } from "../build/database.js";
+import { rebuildBetterSqlite3ForElectron } from "../build/better-sqlite3.js";
 import { packageElectron } from "../build/package.js";
 import {
   inspectPlatformBuild,
@@ -15,8 +16,10 @@ import {
 import { generateElectronMain } from "../generate/electron-main.js";
 import { loadConfig } from "../config.js";
 import { detectFrontend } from "../detect/frontend.js";
+import { detectTopology } from "../detect/topology.js";
 import { assertDeskpackStaticHtmlOutput } from "../build/static-output.js";
 import { log } from "../utils/logger.js";
+import type { DeskpackConfig } from "../types.js";
 
 /**
  * `deskpack build`
@@ -32,7 +35,7 @@ export async function buildCommand(
   options: { skipPackage?: boolean; platform?: string },
 ): Promise<void> {
   log.banner();
-  const config = loadConfig(rootDir);
+  let config = loadConfig(rootDir);
   const targetPlatform = normalizeBuildPlatform(options.platform);
 
   if (config.topology === "ssr-framework") {
@@ -107,10 +110,15 @@ export async function buildCommand(
 
   // 1. Build frontend -------------------------------------------------------
   await buildFrontend(rootDir, config);
+  config = recoverStaleTopology(rootDir, config);
 
   if (config.topology === "next-standalone-runtime") {
+    const nextRuntimeDir = path.join(serverDir, "next");
     copyNextStandaloneRuntime(rootDir, config, serverDir);
     copyDatabaseAssets(rootDir, config, serverDir);
+    await rebuildBetterSqlite3ForElectron(rootDir, desktopDir, nextRuntimeDir, config, {
+      skipPackage: options.skipPackage,
+    });
 
     fs.writeFileSync(
       path.join(desktopDir, "main.cjs"),
@@ -188,6 +196,9 @@ export async function buildCommand(
   } else {
     await bundleBackend(rootDir, config, serverDir);
     copyRuntimeDependencies(rootDir, config, serverDir);
+    await rebuildBetterSqlite3ForElectron(rootDir, desktopDir, serverDir, config, {
+      skipPackage: options.skipPackage,
+    });
   }
   copyDatabaseAssets(rootDir, config, serverDir);
 
@@ -247,4 +258,35 @@ function copyDirSync(src: string, dest: string): void {
       fs.copyFileSync(srcPath, destPath);
     }
   }
+}
+
+function recoverStaleTopology(
+  rootDir: string,
+  config: DeskpackConfig,
+): DeskpackConfig {
+  if (config.topology !== "backend-serves-frontend") {
+    return config;
+  }
+
+  const { topology, evidence } = detectTopology(
+    rootDir,
+    config.backend.path,
+    config.backend.entry,
+    config.frontend.path,
+    config.frontend.framework,
+    config.frontend.distDir,
+    config.frontend.tanstackStart ?? null,
+    config.frontend.nextRuntime ?? null,
+  );
+
+  if (topology !== "frontend-static-separate") {
+    return config;
+  }
+
+  log.info("Recovered topology: frontend-static-separate");
+  return {
+    ...config,
+    topology,
+    topologyEvidence: evidence,
+  };
 }

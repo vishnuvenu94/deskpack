@@ -16,6 +16,51 @@ test("detects backend-serves-frontend topology", () => {
   assert.equal(project.backend.framework, "hono");
 });
 
+test("does not classify Hono API response helpers as static frontend serving", () => {
+  const project = detectProject(fixturePath("hono-api-only-static-separate"));
+  assert.equal(project.topology, "frontend-static-separate");
+  assert.equal(project.backend.framework, "hono");
+  assert.equal(project.backend.entry.replace(/\\/g, "/"), "server/index.ts");
+  assert.deepStrictEqual(project.topologyEvidence.staticServingPatterns, []);
+});
+
+test("detects Hono backend entry from tsx watch script in server directory", () => {
+  const project = detectProject(fixturePath("backend-entry-hono-server-script"));
+  assert.equal(project.backend.framework, "hono");
+  assert.equal(project.backend.entry.replace(/\\/g, "/"), "server/index.ts");
+});
+
+test("detects Express backend entry from nodemon script", () => {
+  const project = detectProject(fixturePath("backend-entry-express-nodemon"));
+  assert.equal(project.backend.framework, "express");
+  assert.equal(project.backend.entry.replace(/\\/g, "/"), "src/server.ts");
+});
+
+test("detects Fastify backend entry after node loader flags", () => {
+  const project = detectProject(fixturePath("backend-entry-fastify-loader"));
+  assert.equal(project.backend.framework, "fastify");
+  assert.equal(project.backend.entry.replace(/\\/g, "/"), "api/server.ts");
+});
+
+test("detects Nest backend entry from nest start convention", () => {
+  const project = detectProject(fixturePath("backend-entry-nest-start"));
+  assert.equal(project.backend.framework, "nestjs");
+  assert.equal(project.backend.entry.replace(/\\/g, "/"), "src/main.ts");
+});
+
+test("detects compiled backend entry from node dist script", () => {
+  const project = detectProject(fixturePath("backend-entry-compiled-dist"));
+  assert.equal(project.backend.framework, "koa");
+  assert.equal(project.backend.entry.replace(/\\/g, "/"), "dist/index.js");
+});
+
+test("fails with a helpful message when backend dependencies have no entry file", () => {
+  assert.throws(
+    () => detectProject(fixturePath("backend-entry-missing")),
+    /Could not detect a backend entry point.*Detected express dependencies.*server\/index\.ts/s,
+  );
+});
+
 test("detects separate frontend + API topology", () => {
   const project = detectProject(fixturePath("frontend-api-separate"));
   assert.equal(project.topology, "frontend-static-separate");

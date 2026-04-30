@@ -199,6 +199,48 @@ function showStartupError(message) {
   app.quit();
 }
 
+function readSqliteSchemaText(filePath) {
+  if (!fs.existsSync(filePath)) return "";
+  try {
+    return fs.readFileSync(filePath).toString("utf8");
+  } catch {
+    return "";
+  }
+}
+
+function sqliteFileHasUserTables(filePath) {
+  const content = [
+    readSqliteSchemaText(filePath),
+    readSqliteSchemaText(filePath + "-wal"),
+  ].join("\\n");
+  const tablePattern = new RegExp(
+    "CREATE\\\\s+(?:VIRTUAL\\\\s+)?TABLE\\\\s+(?:IF\\\\s+NOT\\\\s+EXISTS\\\\s+)?[\\\\x60\\\"\\\\[]?([^\\\\x60\\\"\\\\]\\\\s(]+)",
+    "gi",
+  );
+  for (const match of content.matchAll(tablePattern)) {
+    const tableName = String(match[1] || "").toLowerCase();
+    if (
+      tableName &&
+      !tableName.startsWith("sqlite_") &&
+      tableName !== "__drizzle_migrations" &&
+      tableName !== "_prisma_migrations"
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function removeSqliteSidecars(filePath) {
+  for (const suffix of ["-wal", "-shm", "-journal"]) {
+    try {
+      fs.rmSync(filePath + suffix, { force: true });
+    } catch {
+      // Best effort cleanup before replacing an uninitialized database.
+    }
+  }
+}
+
 function prepareManagedSqliteDatabase() {
   if (!DATABASE_CONFIG || DATABASE_CONFIG.provider !== "sqlite") return {};
 
@@ -210,12 +252,26 @@ function prepareManagedSqliteDatabase() {
   if (!fs.existsSync(runtimePath) && fs.existsSync(templatePath)) {
     fs.copyFileSync(templatePath, runtimePath);
     logInfo("Created SQLite database at " + runtimePath + ".");
+  } else if (
+    fs.existsSync(runtimePath) &&
+    fs.existsSync(templatePath) &&
+    !sqliteFileHasUserTables(runtimePath) &&
+    sqliteFileHasUserTables(templatePath)
+  ) {
+    removeSqliteSidecars(runtimePath);
+    fs.copyFileSync(templatePath, runtimePath);
+    logInfo("Repaired uninitialized SQLite database at " + runtimePath + ".");
   }
 
   return {
     [DATABASE_CONFIG.env.pathVar]: runtimePath,
     [DATABASE_CONFIG.env.urlVar]: "file:" + runtimePath,
   };
+}
+
+function managedSqliteExecArgv() {
+  const preloadPath = path.join(process.resourcesPath, "server", "database", "sqlite-preload.cjs");
+  return fs.existsSync(preloadPath) ? ["--require", preloadPath] : [];
 }
 
 function serverRuntimeEnv(extra) {
@@ -670,6 +726,7 @@ async function startBundledBackend(preferredPort) {
       DESKPACK_BACKEND_PORT: String(backendPort),
       NODE_ENV: "production",
     }),
+    execArgv: managedSqliteExecArgv(),
     cwd: path.dirname(serverPath),
     stdio: "pipe",
     serviceName: "deskpack-backend",
@@ -727,6 +784,7 @@ async function startNextStandaloneServer(preferredPort) {
       HOSTNAME: "127.0.0.1",
       NODE_ENV: "production",
     }),
+    execArgv: managedSqliteExecArgv(),
     cwd: nextDir,
     stdio: "pipe",
     serviceName: "deskpack-next",

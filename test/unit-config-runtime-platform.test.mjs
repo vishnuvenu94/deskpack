@@ -3,6 +3,11 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import vm from "node:vm";
+import {
+  createManagedSqlitePreload,
+  detectHardcodedSqlitePaths,
+} from "../dist/build/database.js";
 import { loadConfig } from "../dist/config.js";
 import { generateElectronMain } from "../dist/generate/electron-main.js";
 import { inspectPlatformBuild } from "../dist/build/platform.js";
@@ -239,11 +244,128 @@ test("generated electron runtime prepares managed SQLite env", () => {
   assert.match(runtime, /prepareManagedSqliteDatabase/);
   assert.match(runtime, /app\.getPath\("userData"\)/);
   assert.match(runtime, /template\.db/);
+  assert.match(runtime, /sqliteFileHasUserTables/);
+  assert.match(runtime, /Repaired uninitialized SQLite database/);
+  assert.match(runtime, /removeSqliteSidecars/);
+  assert.match(runtime, /managedSqliteExecArgv/);
+  assert.match(runtime, /sqlite-preload\.cjs/);
   assert.match(runtime, /serverRuntimeEnv/);
   assert.match(runtime, /"file:" \+ runtimePath/);
   assert.match(runtime, /DATABASE_URL/);
   assert.match(runtime, /DESKPACK_DB_PATH/);
   assert.doesNotMatch(runtime, /pathToFileURL/);
+});
+
+test("managed SQLite preload rewrites hardcoded better-sqlite3 paths", () => {
+  const source = createManagedSqlitePreload(["data/sqlite.db", "/app/data/sqlite.db"]);
+
+  function FakeDatabase(filename) {
+    this.filename = filename;
+  }
+
+  const moduleApi = {
+    _load(request) {
+      if (
+        request !== "better-sqlite3" &&
+        request !== "/app/node_modules/better-sqlite3/lib/index.js"
+      ) {
+        throw new Error(`Unexpected request: ${request}`);
+      }
+      return FakeDatabase;
+    },
+  };
+
+  const context = {
+    process: {
+      env: { DESKPACK_DB_PATH: "/runtime/app.db" },
+      cwd: () => "/app",
+    },
+    require(request) {
+      if (request === "module") return moduleApi;
+      if (request === "path") return path;
+      throw new Error(`Unexpected require: ${request}`);
+    },
+  };
+
+  vm.runInNewContext(source, context);
+
+  const PatchedDatabase = moduleApi._load("better-sqlite3");
+  const AbsolutePatchedDatabase = moduleApi._load("/app/node_modules/better-sqlite3/lib/index.js");
+  assert.equal(new PatchedDatabase("./data/sqlite.db").filename, "/runtime/app.db");
+  assert.equal(new AbsolutePatchedDatabase("./data/sqlite.db").filename, "/runtime/app.db");
+  assert.equal(new PatchedDatabase("data/sqlite.db").filename, "/runtime/app.db");
+  assert.equal(new PatchedDatabase("/app/data/sqlite.db").filename, "/runtime/app.db");
+  assert.equal(
+    new PatchedDatabase("/Applications/Sample.app/Contents/Resources/data/sqlite.db").filename,
+    "/runtime/app.db",
+  );
+  assert.equal(new PatchedDatabase("./other.db").filename, "./other.db");
+  assert.equal(new PatchedDatabase(":memory:").filename, ":memory:");
+});
+
+test("managed SQLite preload rewrites hardcoded sqlite3 paths", () => {
+  const source = createManagedSqlitePreload(["data/app.db", "/app/data/app.db"]);
+
+  function FakeSqlite3Database(filename) {
+    this.filename = filename;
+  }
+
+  const sqlite3 = { Database: FakeSqlite3Database };
+  const moduleApi = {
+    _load(request) {
+      if (
+        request !== "sqlite3" &&
+        request !== "/app/node_modules/sqlite3/lib/sqlite3.js"
+      ) {
+        throw new Error(`Unexpected request: ${request}`);
+      }
+      return sqlite3;
+    },
+  };
+
+  const context = {
+    process: {
+      env: { DESKPACK_DB_PATH: "/runtime/app.db" },
+      cwd: () => "/app",
+    },
+    require(request) {
+      if (request === "module") return moduleApi;
+      if (request === "path") return path;
+      throw new Error(`Unexpected require: ${request}`);
+    },
+  };
+
+  vm.runInNewContext(source, context);
+
+  const patchedSqlite3 = moduleApi._load("sqlite3");
+  const absolutePatchedSqlite3 = moduleApi._load("/app/node_modules/sqlite3/lib/sqlite3.js");
+  assert.equal(new patchedSqlite3.Database("data/app.db").filename, "/runtime/app.db");
+  assert.equal(new absolutePatchedSqlite3.Database("data/app.db").filename, "/runtime/app.db");
+  assert.equal(new patchedSqlite3.Database("/app/data/app.db").filename, "/runtime/app.db");
+  assert.equal(new patchedSqlite3.Database("other.db").filename, "other.db");
+  assert.equal(new patchedSqlite3.Database(":memory:").filename, ":memory:");
+});
+
+test("detects hardcoded SQLite paths from literals and computed path hints", () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "deskpack-sqlite-paths-"));
+  const sourceDir = path.join(tmpDir, "server", "db");
+  fs.mkdirSync(sourceDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(sourceDir, "client.ts"),
+    [
+      'import Database from "better-sqlite3";',
+      'const dataDir = path.join(rootDir, "data");',
+      'const dbPath = path.join(dataDir, "app.db");',
+      "new Database(dbPath);",
+      'new Database("./cache/local.sqlite");',
+      "",
+    ].join("\n"),
+  );
+
+  const paths = detectHardcodedSqlitePaths(tmpDir);
+  assert.ok(paths.includes("data/app.db"));
+  assert.ok(paths.includes(path.join(tmpDir, "data", "app.db").replace(/\\/g, "/")));
+  assert.ok(paths.includes("cache/local.sqlite"));
 });
 
 test("loadConfig defaults apiPrefixes to [\"/api\"] when missing", () => {

@@ -1,0 +1,17 @@
+{
+  "name": "backend-entry-fastify-loader",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "node --loader ts-node/esm api/server.ts",
+    "build": "vite build"
+  },
+  "dependencies": {
+    "fastify": "5.0.0",
+    "react": "18.3.1",
+    "vite": "5.4.0"
+  },
+  "devDependencies": {
+    "ts-node": "10.9.2"
+  }
+}

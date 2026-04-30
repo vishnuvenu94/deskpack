@@ -5,6 +5,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
 import { bundleBackend } from "../dist/build/backend.js";
+import { rebuildBetterSqlite3ForElectron } from "../dist/build/better-sqlite3.js";
 import { copyRuntimeDependencies } from "../dist/build/runtime-deps.js";
 
 function sampleConfig(projectDir) {
@@ -81,7 +82,9 @@ test("bundleBackend preserves backend-relative paths via nested module launcher"
   const nestedBundlePath = path.join(outDir, "src", "server.mjs");
   assert.ok(fs.existsSync(launcherPath));
   assert.ok(fs.existsSync(nestedBundlePath));
-  assert.match(fs.readFileSync(launcherPath, "utf-8"), /import "\.\/src\/server\.mjs"/);
+  const launcher = fs.readFileSync(launcherPath, "utf-8");
+  assert.match(launcher, /sqlite-preload\.cjs/);
+  assert.match(launcher, /await import\("\.\/src\/server\.mjs"\)/);
 
   const result = spawnSync(process.execPath, [launcherPath], {
     cwd: outDir,
@@ -92,6 +95,75 @@ test("bundleBackend preserves backend-relative paths via nested module launcher"
     fs.readFileSync(path.join(outDir, "resolved.txt"), "utf-8"),
     /bundle test/,
   );
+});
+
+test("bundleBackend rewrites managed better-sqlite3 ESM imports through runtime database shim", async () => {
+  const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), "deskpack-bundle-sqlite-shim-"));
+  const srcDir = path.join(projectDir, "src");
+  const outDir = path.join(projectDir, ".deskpack", "desktop", "server");
+  const packageDir = path.join(projectDir, "node_modules", "better-sqlite3");
+
+  fs.mkdirSync(srcDir, { recursive: true });
+  fs.mkdirSync(outDir, { recursive: true });
+  fs.mkdirSync(packageDir, { recursive: true });
+
+  fs.writeFileSync(
+    path.join(packageDir, "package.json"),
+    JSON.stringify({ name: "better-sqlite3", version: "1.0.0", main: "index.js" }),
+  );
+  fs.writeFileSync(
+    path.join(packageDir, "index.js"),
+    "function Database(filename) { this.filename = filename; }\nmodule.exports = Database;\n",
+  );
+  fs.writeFileSync(
+    path.join(srcDir, "server.js"),
+    [
+      'import fs from "node:fs";',
+      'import Database from "better-sqlite3";',
+      'const sqlite = new Database("./data/app.db");',
+      'fs.writeFileSync("resolved.txt", sqlite.filename);',
+      "",
+    ].join("\n"),
+  );
+
+  const config = sampleConfig(projectDir);
+  config.backend.nativeDeps = ["better-sqlite3"];
+  config.database = {
+    provider: "sqlite",
+    mode: "managed-local",
+    driver: "better-sqlite3",
+    runtimeFileName: "app.db",
+    userDataSubdir: "database",
+    env: {
+      pathVar: "DESKPACK_DB_PATH",
+      urlVar: "DATABASE_URL",
+    },
+    migrations: {
+      tool: "none",
+      autoRun: false,
+    },
+    warnings: [],
+  };
+
+  await bundleBackend(projectDir, config, outDir);
+  fs.cpSync(path.join(projectDir, "node_modules"), path.join(outDir, "node_modules"), {
+    recursive: true,
+  });
+
+  const bundle = fs.readFileSync(path.join(outDir, "src", "server.mjs"), "utf-8");
+  assert.match(bundle, /deskpack-managed-sqlite:better-sqlite3/);
+  assert.doesNotMatch(bundle, /from "better-sqlite3"/);
+
+  const result = spawnSync(process.execPath, [path.join(outDir, "server.mjs")], {
+    cwd: outDir,
+    env: {
+      ...process.env,
+      DESKPACK_DB_PATH: "/runtime/app.db",
+    },
+    encoding: "utf-8",
+  });
+  assert.equal(result.status, 0, `${result.stdout || ""}${result.stderr || ""}`);
+  assert.equal(fs.readFileSync(path.join(outDir, "resolved.txt"), "utf-8"), "/runtime/app.db");
 });
 
 test("copyRuntimeDependencies copies Prisma generated client engines", () => {
@@ -205,6 +277,54 @@ test(
   },
 );
 
+test("non-Next better-sqlite3 runtime binding is rebuilt for Electron", async () => {
+  const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), "deskpack-better-backend-"));
+  const desktopDir = path.join(projectDir, ".deskpack", "desktop");
+  const backendDir = path.join(projectDir, "backend");
+  const nodeModules = path.join(backendDir, "node_modules");
+  const outDir = path.join(desktopDir, "server");
+
+  fs.mkdirSync(path.join(desktopDir, "node_modules", "electron"), { recursive: true });
+  fs.writeFileSync(
+    path.join(desktopDir, "node_modules", "electron", "package.json"),
+    JSON.stringify({ version: "33.4.11" }),
+  );
+  installFakeElectronRebuild(desktopDir);
+
+  fs.writeFileSync(path.join(projectDir, "package.json"), JSON.stringify({}));
+  fs.mkdirSync(backendDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(backendDir, "package.json"),
+    JSON.stringify({ dependencies: { "better-sqlite3": "1.0.0" } }),
+  );
+  writeBetterSqlitePackage(path.join(nodeModules, "better-sqlite3"), "backend-host");
+  fs.mkdirSync(outDir, { recursive: true });
+
+  const config = sampleConfig(projectDir);
+  config.backend.path = "backend";
+  config.backend.nativeDeps = ["better-sqlite3"];
+
+  copyRuntimeDependencies(projectDir, config, outDir);
+  await rebuildBetterSqlite3ForElectron(projectDir, desktopDir, outDir, config, {
+    skipPackage: false,
+  });
+
+  assert.equal(
+    fs.readFileSync(
+      path.join(nodeModules, "better-sqlite3", "build", "Release", "better_sqlite3.node"),
+      "utf-8",
+    ),
+    "backend-host",
+  );
+  assert.equal(
+    fs.readFileSync(
+      path.join(outDir, "node_modules", "better-sqlite3", "build", "Release", "better_sqlite3.node"),
+      "utf-8",
+    ),
+    "electron-backend",
+  );
+});
+
 function copyDirSync(src, dest) {
   fs.mkdirSync(dest, { recursive: true });
 
@@ -218,4 +338,34 @@ function copyDirSync(src, dest) {
       fs.copyFileSync(srcPath, destPath);
     }
   }
+}
+
+function writeBetterSqlitePackage(packageDir, marker) {
+  const binaryPath = path.join(packageDir, "build", "Release", "better_sqlite3.node");
+  fs.mkdirSync(path.dirname(binaryPath), { recursive: true });
+  fs.writeFileSync(
+    path.join(packageDir, "package.json"),
+    JSON.stringify({ name: "better-sqlite3", version: "1.0.0" }),
+  );
+  fs.writeFileSync(binaryPath, marker);
+}
+
+function installFakeElectronRebuild(desktopDir) {
+  const binDir = path.join(desktopDir, "node_modules", ".bin");
+  const binPath = path.join(binDir, process.platform === "win32" ? "electron-rebuild.cmd" : "electron-rebuild");
+  fs.mkdirSync(binDir, { recursive: true });
+  fs.writeFileSync(
+    binPath,
+    [
+      "#!/usr/bin/env node",
+      "const fs = require('node:fs');",
+      "const path = require('node:path');",
+      "const args = process.argv.slice(2);",
+      "const moduleDir = args[args.indexOf('--module-dir') + 1];",
+      "const binary = path.join(moduleDir, 'node_modules', 'better-sqlite3', 'build', 'Release', 'better_sqlite3.node');",
+      "fs.writeFileSync(binary, 'electron-backend');",
+      "",
+    ].join("\n"),
+  );
+  fs.chmodSync(binPath, 0o755);
 }
