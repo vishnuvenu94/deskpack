@@ -15,15 +15,13 @@ test("planFrontendDevLaunch reuses preferred port when free", async () => {
   });
 });
 
-test("planFrontendDevLaunch allocates fallback port when preferred port is busy", async () => {
-  const plan = await planFrontendDevLaunch(
-    5173,
-    true,
-    async () => ({ port: 4312, reusedPreferred: false }),
-  );
-  assert.equal(plan.requiresSpawn, true);
-  assert.equal(plan.reusedPreferred, false);
-  assert.equal(plan.port, 4312);
+test("planFrontendDevLaunch reuses busy preferred port without spawning", async () => {
+  const plan = await planFrontendDevLaunch(5173, true);
+  assert.deepEqual(plan, {
+    port: 5173,
+    requiresSpawn: false,
+    reusedPreferred: true,
+  });
 });
 
 test("buildProjectFrontendCommandArgs injects Vite runtime port args for npm", () => {

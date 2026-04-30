@@ -846,6 +846,7 @@ function createWindow(url) {
     minWidth: 800,
     minHeight: 600,
     title: WINDOW_TITLE,
+    show: false,
     titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "default",
     webPreferences: {
       nodeIntegration: false,
@@ -853,6 +854,18 @@ function createWindow(url) {
       sandbox: true,
       webSecurity: true,
     },
+  });
+
+  mainWindow.once("ready-to-show", () => {
+    mainWindow.show();
+    mainWindow.focus();
+    if (process.platform === "darwin" && typeof app.focus === "function") {
+      try {
+        app.focus({ steal: true });
+      } catch (_error) {
+        // ignore
+      }
+    }
   });
 
   mainWindow.loadURL(url).catch((error) => {
@@ -881,10 +894,6 @@ function createWindow(url) {
     });
     return { action: "deny" };
   });
-
-  if (isDev) {
-    mainWindow.webContents.openDevTools({ mode: "detach" });
-  }
 
   mainWindow.on("closed", () => {
     mainWindow = null;
