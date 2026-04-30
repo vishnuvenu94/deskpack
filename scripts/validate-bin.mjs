@@ -27,6 +27,15 @@ if (!cliSource.startsWith("#!/usr/bin/env node")) {
   fail("dist/cli.js is missing the node shebang.");
 }
 
+if (process.platform !== "win32") {
+  const mode = fs.statSync(cliPath).mode;
+  if ((mode & 0o111) === 0) {
+    fail(
+      "dist/cli.js is not executable (npm bin needs +x). Run npm run build.",
+    );
+  }
+}
+
 console.log("Bin validation passed.");
 
 function fail(message) {

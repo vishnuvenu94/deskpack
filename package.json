@@ -1,6 +1,6 @@
 {
   "name": "deskpack",
-  "version": "0.1.0-beta.1",
+  "version": "0.1.0-beta.2",
   "description": "Package JavaScript frontend and full-stack Node apps into desktop applications",
   "type": "module",
   "main": "./dist/index.js",
@@ -18,7 +18,7 @@
     "SECURITY.md"
   ],
   "scripts": {
-    "build": "node ./scripts/clean-dist.mjs && tsc",
+    "build": "node ./scripts/clean-dist.mjs && tsc && node ./scripts/chmod-cli.mjs",
     "dev": "tsc --watch",
     "prepublishOnly": "npm run build",
     "lint": "tsc --noEmit",
