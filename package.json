@@ -65,11 +65,11 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/deskpack/deskpack.git"
+    "url": "git+https://github.com/vishnuvenu94/deskpack.git"
   },
-  "homepage": "https://github.com/deskpack/deskpack#readme",
+  "homepage": "https://github.com/vishnuvenu94/deskpack#readme",
   "bugs": {
-    "url": "https://github.com/deskpack/deskpack/issues"
+    "url": "https://github.com/vishnuvenu94/deskpack/issues"
   },
   "publishConfig": {
     "access": "public",
