@@ -50,7 +50,9 @@ export async function waitForHttpEndpoint(
   }
 
   throw new Error(
-    `Timed out waiting for server on port ${port}. Tried: ${normalized.join(", ")}`,
+    `After waiting ${Math.round(timeoutMs / 1000)}s nothing replied on port ${port} (paths: ${normalized.join(", ")}).\n\n` +
+      `If another program is using that port, stop it or change the port in deskpack.config.json. ` +
+      `If your dev server was still starting, wait until it prints ready and run deskpack dev again.`,
   );
 }
 

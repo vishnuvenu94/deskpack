@@ -4,6 +4,7 @@ import { Command } from "commander";
 import { initCommand, type InitCommandOptions } from "./commands/init.js";
 import { devCommand } from "./commands/dev.js";
 import { buildCommand } from "./commands/build.js";
+import { formatUserFacingError } from "./utils/errors.js";
 import { log } from "./utils/logger.js";
 import { getDeskpackVersion } from "./version.js";
 
@@ -42,7 +43,7 @@ program
     try {
       await initCommand(process.cwd(), options);
     } catch (error) {
-      log.error(error instanceof Error ? error.message : String(error));
+      log.error(formatUserFacingError(error));
       process.exit(1);
     }
   });
@@ -54,7 +55,7 @@ program
     try {
       await devCommand(process.cwd());
     } catch (error) {
-      log.error(error instanceof Error ? error.message : String(error));
+      log.error(formatUserFacingError(error));
       process.exit(1);
     }
   });
@@ -72,7 +73,7 @@ program
     try {
       await buildCommand(process.cwd(), options);
     } catch (error) {
-      log.error(error instanceof Error ? error.message : String(error));
+      log.error(formatUserFacingError(error));
       process.exit(1);
     }
   });
@@ -89,7 +90,7 @@ program.action(async () => {
     try {
       await initCommand(process.cwd());
     } catch (error) {
-      log.error(error instanceof Error ? error.message : String(error));
+      log.error(formatUserFacingError(error));
       process.exit(1);
     }
   }

@@ -188,7 +188,37 @@ function uniqueProbePaths(paths) {
 }
 
 function toErrorMessage(error) {
-  return error instanceof Error ? error.message : String(error);
+  if (!(error instanceof Error)) return String(error);
+  var msg = error.message;
+  var code = error.code;
+  if (
+    code === "EADDRINUSE" ||
+    /\\bEADDRINUSE\\b/i.test(msg) ||
+    /address already in use/i.test(msg) ||
+    (/is unavailable/i.test(msg) && /\\bport\\b/i.test(msg) && /\\d{2,5}/.test(msg))
+  ) {
+    var port = undefined;
+    var match =
+      msg.match(/127\\.0\\.0\\.1:(\\d+)/) ||
+      msg.match(/localhost:(\\d+)/) ||
+      msg.match(/:(\\d+)\\s*$/m) ||
+      msg.match(/\\bport\\s+(\\d+)/i);
+    if (match) port = parseInt(match[1], 10);
+    var intro =
+      port > 0 && port <= 65535
+        ? "Something else is already listening on port " + port + ".\\n\\n"
+        : "Something else is already using that network port.\\n\\n";
+    return (
+      intro +
+      "Usually that is another dev server or a previous process that did not exit. Stop it " +
+      "(or quit the app using it), or change the dev port in deskpack.config.json and try again."
+    );
+  }
+  if (error.cause instanceof Error) {
+    var inner = toErrorMessage(error.cause);
+    if (inner !== error.cause.message) return inner;
+  }
+  return msg;
 }
 
 function showStartupError(message) {
