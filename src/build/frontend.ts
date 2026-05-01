@@ -46,6 +46,14 @@ export async function buildFrontend(
     }
   }
 
+  const extraBuildArgs = frontendBuildScriptArgs(config);
+  if (extraBuildArgs.length > 0) {
+    args = appendPackageScriptArgs(pm, args, extraBuildArgs);
+    log.info(
+      "Using Next.js Webpack build on Windows because native runtime dependencies are present.",
+    );
+  }
+
   log.step("Building frontend", `${command} ${args.join(" ")}`);
 
   const exitCode = await execPassthrough(command, args, { cwd });
@@ -55,6 +63,37 @@ export async function buildFrontend(
   }
 
   log.success("Frontend built");
+}
+
+export function frontendBuildScriptArgs(
+  config: DeskpackConfig,
+  platform: NodeJS.Platform = process.platform,
+): string[] {
+  if (platform !== "win32") return [];
+  if (config.frontend.framework !== "next") return [];
+  if (config.backend.nativeDeps.length === 0) return [];
+
+  const buildCommand = config.frontend.buildCommand.trim();
+  if (!/^next(?:\.(?:cmd|exe|bat|com))?\s+build(?:\s|$)/i.test(buildCommand)) {
+    return [];
+  }
+  if (/(^|\s)--(?:webpack|turbopack|turbo)(\s|$)/i.test(buildCommand)) {
+    return [];
+  }
+
+  return ["--webpack"];
+}
+
+function appendPackageScriptArgs(
+  packageManager: DeskpackConfig["monorepo"]["packageManager"],
+  args: string[],
+  extraArgs: string[],
+): string[] {
+  if (packageManager === "yarn") {
+    return [...args, ...extraArgs];
+  }
+
+  return [...args, "--", ...extraArgs];
 }
 
 function assertFrontendBuildDependencies(

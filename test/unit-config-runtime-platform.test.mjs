@@ -8,6 +8,7 @@ import {
   createManagedSqlitePreload,
   detectHardcodedSqlitePaths,
 } from "../dist/build/database.js";
+import { frontendBuildScriptArgs } from "../dist/build/frontend.js";
 import { loadConfig } from "../dist/config.js";
 import { generateElectronMain } from "../dist/generate/electron-main.js";
 import { inspectPlatformBuild } from "../dist/build/platform.js";
@@ -126,6 +127,21 @@ test("platform policy blocks windows cross-build when native deps exist", () => 
   const decision = inspectPlatformBuild(config, "win32", "darwin");
   assert.equal(decision.allowed, false);
   assert.match(decision.reasons.join("\n"), /native\/runtime dependencies/i);
+});
+
+test("windows Next native builds opt into webpack unless already configured", () => {
+  const config = sampleConfig();
+  config.frontend.framework = "next";
+  config.frontend.buildCommand = "next build";
+  config.backend.nativeDeps = ["@libsql/client"];
+
+  assert.deepEqual(frontendBuildScriptArgs(config, "win32"), ["--webpack"]);
+
+  config.frontend.buildCommand = "next build --webpack";
+  assert.deepEqual(frontendBuildScriptArgs(config, "win32"), []);
+
+  config.frontend.buildCommand = "next build";
+  assert.deepEqual(frontendBuildScriptArgs(config, "darwin"), []);
 });
 
 test("generated electron runtime includes API proxy for frontend-static-separate topology", () => {
