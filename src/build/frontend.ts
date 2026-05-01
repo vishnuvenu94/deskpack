@@ -14,8 +14,10 @@ export async function buildFrontend(
 ): Promise<void> {
   const pm = config.monorepo.packageManager;
   const pmCommand = resolvePlatformCommand(pm);
+  assertFrontendBuildDependencies(rootDir, config);
   let command: string;
   let args: string[];
+  let cwd = rootDir;
 
   if (config.monorepo.type !== "none") {
     // Monorepo: run the build through the workspace-aware package manager.
@@ -37,18 +39,105 @@ export async function buildFrontend(
     if (config.frontend.path === ".") {
       args = ["run", "build"];
     } else {
-      // Frontend in subdirectory - run from that directory
-      args = ["run", "--prefix", config.frontend.path, "build"];
+      // Frontend in subdirectory: run from that package so npm exposes
+      // its local node_modules/.bin on PATH consistently on Windows.
+      cwd = path.resolve(rootDir, config.frontend.path);
+      args = ["run", "build"];
     }
   }
 
   log.step("Building frontend", `${command} ${args.join(" ")}`);
 
-  const exitCode = await execPassthrough(command, args, { cwd: rootDir });
+  const exitCode = await execPassthrough(command, args, { cwd });
 
   if (exitCode !== 0) {
     throw new Error(`Frontend build failed with exit code ${exitCode}`);
   }
 
   log.success("Frontend built");
+}
+
+function assertFrontendBuildDependencies(
+  rootDir: string,
+  config: DeskpackConfig,
+): void {
+  const requiredBin = requiredBuildBinary(config.frontend.buildCommand);
+  if (!requiredBin) return;
+
+  const frontendDir = path.resolve(rootDir, config.frontend.path);
+  if (hasLocalBin(rootDir, frontendDir, requiredBin)) return;
+
+  throw new Error(
+    `Frontend build tool "${requiredBin}" was not found in node_modules. ` +
+      `Install project dependencies first: ${installCommand(config)}`,
+  );
+}
+
+function requiredBuildBinary(buildCommand: string): string | null {
+  const command = buildCommand.trim();
+  if (!command) return null;
+
+  for (const binary of ["vite", "next", "react-scripts", "ng", "webpack", "parcel"]) {
+    const pattern = new RegExp(`(^|[\\s;&|])${escapeRegExp(binary)}(\\.(cmd|exe|bat|com))?([\\s;&|]|$)`);
+    if (pattern.test(command)) return binary;
+  }
+
+  return null;
+}
+
+function hasLocalBin(rootDir: string, packageDir: string, command: string): boolean {
+  let current = packageDir;
+  const stopAt = path.dirname(rootDir);
+
+  while (current.startsWith(rootDir) && current !== stopAt) {
+    if (fs.existsSync(resolveLocalBinForAnyPlatform(current, command))) {
+      return true;
+    }
+
+    const parent = path.dirname(current);
+    if (parent === current) break;
+    current = parent;
+  }
+
+  return false;
+}
+
+function resolveLocalBinForAnyPlatform(packageDir: string, command: string): string {
+  const binDir = path.join(packageDir, "node_modules", ".bin");
+  const platformBin = resolvePlatformCommand(command);
+  const candidates = [
+    path.join(binDir, platformBin),
+    path.join(binDir, command),
+    path.join(binDir, `${command}.cmd`),
+    path.join(binDir, `${command}.exe`),
+    path.join(binDir, `${command}.bat`),
+  ];
+
+  return candidates.find((candidate) => fs.existsSync(candidate)) ?? candidates[0];
+}
+
+function installCommand(config: DeskpackConfig): string {
+  const pm = config.monorepo.packageManager;
+
+  if (config.monorepo.type !== "none") {
+    return `${pm} install`;
+  }
+
+  if (config.frontend.path === ".") {
+    return `${pm} install`;
+  }
+
+  if (pm === "npm") {
+    return `npm install --prefix ${config.frontend.path}`;
+  }
+
+  if (pm === "pnpm") {
+    return `pnpm install --dir ${config.frontend.path}`;
+  }
+
+  return `cd ${config.frontend.path} && yarn install`;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

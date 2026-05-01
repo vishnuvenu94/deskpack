@@ -377,6 +377,25 @@ test("deskpack build --skip-package works for backend-serves-frontend topology",
   assert.ok(fs.existsSync(path.join(serverDir, "src", "server.mjs")));
 });
 
+test("deskpack build reports missing frontend dependencies before invoking Vite", () => {
+  const projectDir = copyFixtureToTemp("backend-serves-frontend");
+  const packageJsonPath = path.join(projectDir, "package.json");
+  const pkg = JSON.parse(fs.readFileSync(packageJsonPath, "utf-8"));
+  pkg.scripts.build = "vite build";
+  fs.writeFileSync(packageJsonPath, JSON.stringify(pkg, null, 2) + "\n");
+
+  const initResult = runCli(["init", "--yes", "--force"], projectDir, {
+    DESKPACK_SKIP_ELECTRON_INSTALL: "1",
+  });
+  assert.equal(initResult.status, 0, commandOutput(initResult));
+
+  const buildResult = runCli(["build", "--skip-package"], projectDir);
+  const output = commandOutput(buildResult);
+  assert.notEqual(buildResult.status, 0, output);
+  assert.match(output, /Frontend build tool "vite" was not found in node_modules/);
+  assert.match(output, /npm install/);
+});
+
 test("deskpack build recovers stale backend-serves config for API-only backend", () => {
   const projectDir = copyFixtureToTemp("hono-api-only-static-separate");
 
