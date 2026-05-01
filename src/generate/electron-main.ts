@@ -221,6 +221,23 @@ function toErrorMessage(error) {
   return msg;
 }
 
+function formatNativeCrashDetail(detail) {
+  if (
+    process.platform === "win32" &&
+    /ERR_DLOPEN_FAILED|\\.node|The specified module could not be found/i.test(detail) &&
+    /@libsql|libsql|win32-x64-msvc|VCRUNTIME|MSVCP/i.test(detail)
+  ) {
+    return (
+      "This app requires the Microsoft Visual C++ Redistributable 2015-2022 x64 to run its native database dependency.\\n\\n" +
+      "Install it from https://aka.ms/vc14/vc_redist.x64.exe, then restart the app.\\n\\n" +
+      "Original error:\\n" +
+      detail
+    );
+  }
+
+  return detail;
+}
+
 function showStartupError(message) {
   if (startupFailed) return;
   startupFailed = true;
@@ -779,7 +796,7 @@ async function startBundledBackend(preferredPort) {
     if (trimmed) console.error("[backend:err] " + trimmed);
   });
   apiProcess.once("exit", (code) => {
-    const detail = stderrBuffer.trim();
+    const detail = formatNativeCrashDetail(stderrBuffer.trim());
     backendCrashReason =
       "Backend process exited before readiness (code " +
       code +
@@ -840,7 +857,7 @@ async function startNextStandaloneServer(preferredPort) {
     if (trimmed) console.error("[next:err] " + trimmed);
   });
   apiProcess.once("exit", (code) => {
-    const detail = stderrBuffer.trim();
+    const detail = formatNativeCrashDetail(stderrBuffer.trim());
     backendCrashReason =
       "Next.js server exited before readiness (code " +
       code +

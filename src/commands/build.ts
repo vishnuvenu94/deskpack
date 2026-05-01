@@ -127,6 +127,7 @@ export async function buildCommand(
 
     if (!options.skipPackage) {
       log.blank();
+      warnWindowsNativeRuntimePrerequisite(config, targetPlatform);
       await packageElectron(rootDir, targetPlatform);
     }
 
@@ -211,6 +212,7 @@ export async function buildCommand(
   // 5. Package (optional) ---------------------------------------------------
   if (!options.skipPackage) {
     log.blank();
+    warnWindowsNativeRuntimePrerequisite(config, targetPlatform);
     await packageElectron(rootDir, targetPlatform);
   }
 
@@ -289,4 +291,17 @@ function recoverStaleTopology(
     topology,
     topologyEvidence: evidence,
   };
+}
+
+function warnWindowsNativeRuntimePrerequisite(
+  config: DeskpackConfig,
+  targetPlatform: NodeJS.Platform,
+): void {
+  if (targetPlatform !== "win32") return;
+  if (config.backend.nativeDeps.length === 0) return;
+
+  log.warn(
+    "Windows users may need Microsoft Visual C++ Redistributable 2015-2022 x64 for native dependencies.",
+  );
+  log.dim("  Install from https://aka.ms/vc14/vc_redist.x64.exe");
 }
