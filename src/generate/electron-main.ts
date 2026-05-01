@@ -304,10 +304,16 @@ function managedSqliteExecArgv() {
   return fs.existsSync(preloadPath) ? ["--require", preloadPath] : [];
 }
 
+function preparePlaywrightBrowsersEnv() {
+  const browsersPath = path.join(process.resourcesPath, "server", "ms-playwright");
+  return fs.existsSync(browsersPath) ? { PLAYWRIGHT_BROWSERS_PATH: browsersPath } : {};
+}
+
 function serverRuntimeEnv(extra) {
   return {
     ...process.env,
     ...prepareManagedSqliteDatabase(),
+    ...preparePlaywrightBrowsersEnv(),
     ...extra,
   };
 }

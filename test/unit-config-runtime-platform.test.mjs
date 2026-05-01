@@ -86,6 +86,8 @@ test("generated electron runtime includes single-instance + hardening logic", ()
   assert.doesNotMatch(runtime, /usePackagedStaticAbsoluteProxy/);
   assert.doesNotMatch(runtime, /access-control-allow-origin"\]\s*=\s*\["\*"\]/);
   assert.doesNotMatch(runtime, /webSecurity:\s*false/);
+  assert.match(runtime, /function preparePlaywrightBrowsersEnv/);
+  assert.match(runtime, /PLAYWRIGHT_BROWSERS_PATH/);
   assert.match(runtime, /\[deskpack\]/);
   assert.doesNotMatch(runtime, /shipdesk/i);
 });

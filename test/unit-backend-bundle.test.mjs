@@ -277,6 +277,125 @@ test(
   },
 );
 
+test("copyRuntimeDependencies copies Playwright browsers into the server runtime", () => {
+  const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), "deskpack-playwright-runtime-"));
+  const nodeModules = path.join(projectDir, "node_modules");
+  const outDir = path.join(projectDir, ".deskpack", "desktop", "server");
+  const browserDir = path.join(
+    nodeModules,
+    "playwright-core",
+    ".local-browsers",
+    "chromium_headless_shell-1217",
+  );
+
+  fs.mkdirSync(path.join(nodeModules, "playwright"), { recursive: true });
+  fs.mkdirSync(browserDir, { recursive: true });
+  fs.mkdirSync(outDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(projectDir, "package.json"),
+    JSON.stringify({ dependencies: { playwright: "1.59.1" } }),
+  );
+  fs.writeFileSync(
+    path.join(nodeModules, "playwright", "package.json"),
+    JSON.stringify({
+      name: "playwright",
+      version: "1.59.1",
+      dependencies: { "playwright-core": "1.59.1" },
+    }),
+  );
+  fs.writeFileSync(
+    path.join(nodeModules, "playwright-core", "package.json"),
+    JSON.stringify({ name: "playwright-core", version: "1.59.1" }),
+  );
+  fs.writeFileSync(path.join(browserDir, "chrome-headless-shell"), "browser");
+
+  const config = sampleConfig(projectDir);
+  config.backend.nativeDeps = ["playwright"];
+
+  copyRuntimeDependencies(projectDir, config, outDir);
+
+  assert.ok(fs.existsSync(path.join(outDir, "node_modules", "playwright", "package.json")));
+  assert.ok(fs.existsSync(path.join(outDir, "node_modules", "playwright-core", "package.json")));
+  assert.equal(
+    fs.readFileSync(
+      path.join(outDir, "ms-playwright", "chromium_headless_shell-1217", "chrome-headless-shell"),
+      "utf-8",
+    ),
+    "browser",
+  );
+});
+
+test("copyRuntimeDependencies prunes stale Playwright browser cache entries", () => {
+  const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), "deskpack-playwright-prune-"));
+  const nodeModules = path.join(projectDir, "node_modules");
+  const playwrightCoreDir = path.join(nodeModules, "playwright-core");
+  const browserCache = path.join(playwrightCoreDir, ".local-browsers");
+  const outDir = path.join(projectDir, ".deskpack", "desktop", "server");
+
+  fs.mkdirSync(path.join(nodeModules, "playwright"), { recursive: true });
+  fs.mkdirSync(path.join(browserCache, "chromium_headless_shell-1217"), { recursive: true });
+  fs.mkdirSync(path.join(browserCache, "ffmpeg_mac12_arm64_special-1010"), { recursive: true });
+  fs.mkdirSync(path.join(browserCache, "chromium_headless_shell-1161"), { recursive: true });
+  fs.mkdirSync(path.join(browserCache, "firefox-1475"), { recursive: true });
+  fs.mkdirSync(outDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(projectDir, "package.json"),
+    JSON.stringify({ dependencies: { playwright: "1.59.1" } }),
+  );
+  fs.writeFileSync(
+    path.join(nodeModules, "playwright", "package.json"),
+    JSON.stringify({
+      name: "playwright",
+      version: "1.59.1",
+      dependencies: { "playwright-core": "1.59.1" },
+    }),
+  );
+  fs.writeFileSync(
+    path.join(playwrightCoreDir, "package.json"),
+    JSON.stringify({ name: "playwright-core", version: "1.59.1" }),
+  );
+  fs.writeFileSync(
+    path.join(playwrightCoreDir, "browsers.json"),
+    JSON.stringify({
+      browsers: [
+        {
+          name: "chromium-headless-shell",
+          revision: "1217",
+          installByDefault: true,
+        },
+        {
+          name: "ffmpeg",
+          revision: "1011",
+          installByDefault: true,
+          revisionOverrides: {
+            "mac12-arm64": "1010",
+          },
+        },
+      ],
+    }),
+  );
+  fs.writeFileSync(
+    path.join(browserCache, "chromium_headless_shell-1217", "chrome-headless-shell"),
+    "current",
+  );
+  fs.writeFileSync(
+    path.join(browserCache, "chromium_headless_shell-1161", "chrome-headless-shell"),
+    "stale",
+  );
+  fs.writeFileSync(path.join(browserCache, "ffmpeg_mac12_arm64_special-1010", "ffmpeg"), "current");
+  fs.writeFileSync(path.join(browserCache, "firefox-1475", "firefox"), "stale");
+
+  const config = sampleConfig(projectDir);
+  config.backend.nativeDeps = ["playwright"];
+
+  copyRuntimeDependencies(projectDir, config, outDir);
+
+  assert.deepEqual(fs.readdirSync(path.join(outDir, "ms-playwright")).sort(), [
+    "chromium_headless_shell-1217",
+    "ffmpeg_mac12_arm64_special-1010",
+  ]);
+});
+
 test("non-Next better-sqlite3 runtime binding is rebuilt for Electron", async () => {
   const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), "deskpack-better-backend-"));
   const desktopDir = path.join(projectDir, ".deskpack", "desktop");

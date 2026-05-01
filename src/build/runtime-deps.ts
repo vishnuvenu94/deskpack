@@ -11,6 +11,18 @@ interface ResolvedPackage {
   packageDir: string;
 }
 
+interface PlaywrightBrowserEntry {
+  name: string;
+  revision: string;
+  installByDefault?: boolean;
+  revisionOverrides?: Record<string, string>;
+}
+
+interface ExpectedPlaywrightBrowser {
+  normalizedName: string;
+  revisions: Set<string>;
+}
+
 /**
  * Copy packages that esbuild intentionally leaves external into the server
  * runtime. This is required for native/binary packages such as Playwright,
@@ -26,6 +38,7 @@ export function copyRuntimeDependencies(
   const destinationNodeModules = path.join(serverDir, "node_modules");
   const copied = new Set<string>();
   const needsPrismaArtifacts = hasPrismaArtifacts(rootDir, packageDirs);
+  const needsPlaywrightBrowsers = config.backend.nativeDeps.some(isPlaywrightPackage);
 
   if (config.backend.nativeDeps.length === 0 && !needsPrismaArtifacts) return;
 
@@ -48,10 +61,225 @@ export function copyRuntimeDependencies(
     copyPrismaArtifacts(rootDir, packageDirs, destinationNodeModules, copied);
   }
 
+  if (needsPlaywrightBrowsers) {
+    copyPlaywrightBrowsers(rootDir, packageDirs, serverDir);
+  }
+
   if (copied.size > 0) {
     log.success(
       `Copied runtime dependencies: ${[...copied].sort().join(", ")}`,
     );
+  }
+}
+
+function isPlaywrightPackage(packageName: string): boolean {
+  return packageName === "playwright" || packageName === "playwright-core";
+}
+
+function copyPlaywrightBrowsers(
+  rootDir: string,
+  packageDirs: string[],
+  serverDir: string,
+): void {
+  const source = resolvePlaywrightBrowsersDir(rootDir, packageDirs);
+
+  if (!source) {
+    throw new Error(
+      "Playwright was detected as a runtime dependency, but its browser binaries were not found. " +
+        "Run `npx playwright install` in the project before `deskpack build`.",
+    );
+  }
+
+  const destination = path.join(serverDir, "ms-playwright");
+  if (path.resolve(source) === path.resolve(destination)) return;
+
+  if (fs.existsSync(destination)) {
+    fs.rmSync(destination, { recursive: true, force: true });
+  }
+  fs.mkdirSync(path.dirname(destination), { recursive: true });
+
+  const copiedEntries = copyExpectedPlaywrightBrowserEntries(
+    rootDir,
+    packageDirs,
+    source,
+    destination,
+  );
+
+  if (copiedEntries.length === 0) {
+    fs.cpSync(source, destination, { recursive: true, dereference: true });
+  }
+
+  const detail =
+    copiedEntries.length > 0
+      ? `${path.relative(rootDir, destination)} (${copiedEntries.join(", ")})`
+      : path.relative(rootDir, destination);
+  log.success(`Copied Playwright browsers: ${detail}`);
+}
+
+function copyExpectedPlaywrightBrowserEntries(
+  rootDir: string,
+  packageDirs: string[],
+  source: string,
+  destination: string,
+): string[] {
+  const expected = expectedPlaywrightBrowsers(rootDir, packageDirs);
+  if (expected.length === 0) return [];
+
+  const copied: string[] = [];
+  for (const entry of safeReaddir(source)) {
+    if (!entry.isDirectory()) continue;
+    if (!isExpectedPlaywrightBrowserDirectory(entry.name, expected)) continue;
+
+    fs.cpSync(path.join(source, entry.name), path.join(destination, entry.name), {
+      recursive: true,
+      dereference: true,
+    });
+    copied.push(entry.name);
+  }
+
+  if (copied.length === 0) {
+    throw new Error(
+      "Playwright was detected as a runtime dependency, but the installed browser binaries do not match " +
+        "the project's Playwright version. Run `npx playwright install` in the project before `deskpack build`.",
+    );
+  }
+
+  return copied.sort();
+}
+
+function expectedPlaywrightBrowsers(
+  rootDir: string,
+  packageDirs: string[],
+): ExpectedPlaywrightBrowser[] {
+  const manifestPath = resolvePlaywrightBrowsersManifest(rootDir, packageDirs);
+  if (!manifestPath) return [];
+
+  let manifest: { browsers?: PlaywrightBrowserEntry[] };
+  try {
+    manifest = JSON.parse(fs.readFileSync(manifestPath, "utf-8")) as {
+      browsers?: PlaywrightBrowserEntry[];
+    };
+  } catch {
+    return [];
+  }
+
+  const expected: ExpectedPlaywrightBrowser[] = [];
+  for (const browser of manifest.browsers ?? []) {
+    if (!browser.installByDefault) continue;
+
+    const normalizedName = browser.name.replace(/-/g, "_");
+    const revisions = new Set<string>([browser.revision]);
+    for (const revision of Object.values(browser.revisionOverrides ?? {})) {
+      revisions.add(revision);
+    }
+    expected.push({ normalizedName, revisions });
+  }
+
+  return expected;
+}
+
+function isExpectedPlaywrightBrowserDirectory(
+  directoryName: string,
+  expected: ExpectedPlaywrightBrowser[],
+): boolean {
+  for (const browser of expected) {
+    const nextChar = directoryName[browser.normalizedName.length];
+    if (
+      !directoryName.startsWith(browser.normalizedName) ||
+      (nextChar !== "-" && nextChar !== "_")
+    ) {
+      continue;
+    }
+
+    for (const revision of browser.revisions) {
+      if (directoryName.endsWith(`-${revision}`)) return true;
+    }
+  }
+
+  return false;
+}
+
+function resolvePlaywrightBrowsersManifest(
+  rootDir: string,
+  packageDirs: string[],
+): string | null {
+  const resolved = resolvePackage(rootDir, packageDirs, "playwright-core");
+  if (resolved) {
+    const candidate = path.join(resolved.packageDir, "browsers.json");
+    if (fs.existsSync(candidate)) return candidate;
+  }
+
+  for (const packageDir of packageDirs) {
+    const manifestPath = path.join(packageDir, "package.json");
+    if (!fs.existsSync(manifestPath)) continue;
+    try {
+      const requireFromPackage = createRequire(manifestPath);
+      return requireFromPackage.resolve("playwright-core/browsers.json");
+    } catch {
+      // Try the next workspace/package directory.
+    }
+  }
+
+  return null;
+}
+
+function resolvePlaywrightBrowsersDir(
+  rootDir: string,
+  packageDirs: string[],
+): string | null {
+  const envPath = process.env.PLAYWRIGHT_BROWSERS_PATH;
+  if (envPath && envPath !== "0") {
+    const absoluteEnvPath = path.isAbsolute(envPath)
+      ? envPath
+      : path.resolve(rootDir, envPath);
+    if (hasPlaywrightBrowserEntries(absoluteEnvPath)) return absoluteEnvPath;
+  }
+
+  for (const packageDir of packageDirs) {
+    for (const candidate of [
+      path.join(packageDir, "node_modules", "playwright-core", ".local-browsers"),
+      path.join(packageDir, "node_modules", "playwright", ".local-browsers"),
+    ]) {
+      if (hasPlaywrightBrowserEntries(candidate)) return candidate;
+    }
+  }
+
+  const cacheDir = defaultPlaywrightBrowsersDir();
+  if (cacheDir && hasPlaywrightBrowserEntries(cacheDir)) return cacheDir;
+
+  return null;
+}
+
+function hasPlaywrightBrowserEntries(dir: string): boolean {
+  if (!fs.existsSync(dir)) return false;
+  try {
+    return fs.readdirSync(dir, { withFileTypes: true }).some((entry) => entry.isDirectory());
+  } catch {
+    return false;
+  }
+}
+
+function defaultPlaywrightBrowsersDir(): string | null {
+  if (process.platform === "win32") {
+    const localAppData = process.env.LOCALAPPDATA;
+    return localAppData ? path.join(localAppData, "ms-playwright") : null;
+  }
+
+  const home = process.env.HOME;
+  if (!home) return null;
+
+  if (process.platform === "darwin") {
+    return path.join(home, "Library", "Caches", "ms-playwright");
+  }
+
+  return path.join(home, ".cache", "ms-playwright");
+}
+
+function safeReaddir(dir: string): fs.Dirent[] {
+  try {
+    return fs.readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return [];
   }
 }
 
