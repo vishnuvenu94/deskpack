@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { execPassthrough } from "../utils/exec.js";
+import { execPassthrough, resolveLocalBin } from "../utils/exec.js";
 import { log } from "../utils/logger.js";
 import type { BuildPlatform } from "../types.js";
 
@@ -24,15 +24,12 @@ export async function packageElectron(
 
   const platformFlag = electronBuilderPlatformFlag(targetPlatform);
   log.step("Packaging application", `electron-builder ${platformFlag}`);
-  const electronBuilderBin = path.join(
-    desktopDir,
-    "node_modules",
-    ".bin",
-    process.platform === "win32" ? "electron-builder.cmd" : "electron-builder",
-  );
+  const electronBuilderBin = resolveLocalBin(desktopDir, "electron-builder");
 
   if (!fs.existsSync(electronBuilderBin)) {
-    throw new Error("electron-builder binary not found. Run `deskpack init` again.");
+    throw new Error(
+      "electron-builder binary not found. Run `cd .deskpack/desktop && npm install`, then retry.",
+    );
   }
 
   const exitCode = await execPassthrough(

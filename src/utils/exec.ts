@@ -1,4 +1,6 @@
-import { spawn, type SpawnOptions } from "node:child_process";
+import crossSpawn from "cross-spawn";
+import path from "node:path";
+import type { ChildProcess, SpawnOptions } from "node:child_process";
 
 export interface ExecResult {
   stdout: string;
@@ -18,6 +20,36 @@ export function resolvePlatformCommand(command: string): string {
 }
 
 /**
+ * Resolve a locally installed package binary from node_modules/.bin.
+ */
+export function resolveLocalBin(
+  packageDir: string,
+  command: string,
+  platform: NodeJS.Platform = process.platform,
+): string {
+  const binaryName =
+    platform === "win32" && !/\.(cmd|exe|bat|com)$/i.test(command)
+      ? `${command}.cmd`
+      : command;
+
+  return path.join(packageDir, "node_modules", ".bin", binaryName);
+}
+
+/**
+ * Spawn a command using Windows-safe npm shim handling.
+ */
+export function spawnCommand(
+  command: string,
+  args: string[],
+  options?: SpawnOptions,
+): ChildProcess {
+  return crossSpawn(command, args, {
+    shell: false,
+    ...options,
+  });
+}
+
+/**
  * Execute a command, capture its output, and return when it exits.
  */
 export function exec(
@@ -26,9 +58,8 @@ export function exec(
   options?: SpawnOptions,
 ): Promise<ExecResult> {
   return new Promise((resolve, reject) => {
-    const proc = spawn(command, args, {
+    const proc = spawnCommand(command, args, {
       stdio: ["ignore", "pipe", "pipe"],
-      shell: false,
       ...options,
     });
 
@@ -59,9 +90,8 @@ export function execPassthrough(
   options?: SpawnOptions,
 ): Promise<number> {
   return new Promise((resolve, reject) => {
-    const proc = spawn(command, args, {
+    const proc = spawnCommand(command, args, {
       stdio: "inherit",
-      shell: false,
       ...options,
     });
 

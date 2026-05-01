@@ -1,11 +1,11 @@
 import fs from "node:fs";
 import path from "node:path";
-import { spawn, type ChildProcess } from "node:child_process";
+import type { ChildProcess } from "node:child_process";
 import chalk from "chalk";
 import { loadConfig } from "../config.js";
 import { generateElectronMain } from "../generate/electron-main.js";
-import { isPortInUse, waitForHttpEndpoint } from "../utils/net.js";
-import { resolvePlatformCommand } from "../utils/exec.js";
+import { findAvailablePort, isPortInUse, waitForHttpEndpoint } from "../utils/net.js";
+import { resolveLocalBin, resolvePlatformCommand, spawnCommand } from "../utils/exec.js";
 import { log } from "../utils/logger.js";
 import type { DeskpackConfig } from "../types.js";
 
@@ -74,6 +74,11 @@ export async function devCommand(rootDir: string): Promise<void> {
 
   const frontendPlan = await planFrontendDevLaunch(frontendPort, frontendAlreadyRunning);
   frontendPort = frontendPlan.port;
+  if (!frontendPlan.reusedPreferred) {
+    log.warn(
+      `Frontend port ${config.frontend.devPort} is busy. Starting this project on ${frontendPort} instead.`,
+    );
+  }
 
   if (frontendPlan.requiresSpawn || (hasBackend && !backendAlreadyRunning)) {
     const pm = config.monorepo.packageManager;
@@ -102,7 +107,7 @@ export async function devCommand(rootDir: string): Promise<void> {
           frontendPort,
         );
 
-        const feProcess = spawn(pmCommand, args, {
+        const feProcess = spawnCommand(pmCommand, args, {
           cwd: rootDir,
           stdio: "pipe",
           shell: false,
@@ -134,7 +139,7 @@ export async function devCommand(rootDir: string): Promise<void> {
           args = ["--workspace", config.backend.path, "run", backendScript];
         }
 
-        const beProcess = spawn(pmCommand, args, {
+        const beProcess = spawnCommand(pmCommand, args, {
           cwd: rootDir,
           stdio: "pipe",
           shell: false,
@@ -161,7 +166,7 @@ export async function devCommand(rootDir: string): Promise<void> {
       if (separateDevPackages && frontendPlan.requiresSpawn) {
         log.step("Starting frontend dev…", `${pm} run ${frontendScript}`);
 
-        const frontendProcess = spawn(
+        const frontendProcess = spawnCommand(
           pmCommand,
           buildProjectFrontendCommandArgs(
             pm,
@@ -198,7 +203,7 @@ export async function devCommand(rootDir: string): Promise<void> {
 
         log.step("Starting backend dev…", `${pm} run ${backendScript}`);
 
-        const backendProcess = spawn(pmCommand, ["run", backendScript], {
+        const backendProcess = spawnCommand(pmCommand, ["run", backendScript], {
           cwd: backendCwd,
           stdio: "pipe",
           shell: false,
@@ -217,7 +222,7 @@ export async function devCommand(rootDir: string): Promise<void> {
         const label = hasBackend ? "Starting dev servers…" : "Starting frontend dev…";
         log.step(label, `${pm} run ${frontendScript}`);
 
-        const devProcess = spawn(
+        const devProcess = spawnCommand(
           pmCommand,
           buildProjectFrontendCommandArgs(
             pm,
@@ -277,29 +282,63 @@ export async function devCommand(rootDir: string): Promise<void> {
   );
   log.step("Launching Electron window…");
 
-  const electronBin = path.join(desktopDir, "node_modules", ".bin", "electron");
-  const electronProcess = spawn(electronBin, ["."], {
+  const electronBin = resolveLocalBin(desktopDir, "electron");
+  if (!fs.existsSync(electronBin)) {
+    throw new Error(
+      "Electron binary not found. Run `cd .deskpack/desktop && npm install`, then retry.",
+    );
+  }
+
+  const electronProcess = spawnCommand(electronBin, ["."], {
     cwd: desktopDir,
     stdio: "inherit",
   });
 
-  const stopDevServers = (): void => {
-    for (const child of devProcesses) {
-      child.kill("SIGTERM");
-    }
-  };
-
-  const onCliInterrupt = (): void => {
+  const cleanup = async (): Promise<void> => {
     electronProcess.kill("SIGTERM");
-    stopDevServers();
+    for (const processHandle of devProcesses) {
+      processHandle.kill("SIGTERM");
+    }
+
+    await new Promise<void>((resolve) => {
+      const timeout = setTimeout(() => {
+        electronProcess.kill("SIGKILL");
+        for (const processHandle of devProcesses) {
+          processHandle.kill("SIGKILL");
+        }
+        resolve();
+      }, 3000);
+
+      electronProcess.on("exit", () => {
+        clearTimeout(timeout);
+        if (devProcesses.every((processHandle) => processHandle.killed)) {
+          resolve();
+        }
+      });
+
+      Promise.all(
+        devProcesses.map(
+          (processHandle) =>
+            new Promise<void>((resolveProcess) =>
+              processHandle.on("exit", () => resolveProcess()),
+            ),
+        ),
+      ).then(() => {
+        clearTimeout(timeout);
+        resolve();
+      });
+    });
+
     process.exit(0);
   };
 
-  process.on("SIGINT", onCliInterrupt);
-  process.on("SIGTERM", onCliInterrupt);
+  process.on("SIGINT", () => cleanup());
+  process.on("SIGTERM", () => cleanup());
 
   electronProcess.on("exit", () => {
-    stopDevServers();
+    for (const processHandle of devProcesses) {
+      processHandle.kill("SIGTERM");
+    }
     process.exit(0);
   });
 }
@@ -307,6 +346,9 @@ export async function devCommand(rootDir: string): Promise<void> {
 export async function planFrontendDevLaunch(
   preferredPort: number,
   preferredPortInUse: boolean,
+  allocatePort: (
+    preferredPort: number,
+  ) => Promise<{ port: number; reusedPreferred: boolean }> = findAvailablePort,
 ): Promise<FrontendDevLaunchPlan> {
   if (!preferredPortInUse) {
     return {
@@ -316,11 +358,11 @@ export async function planFrontendDevLaunch(
     };
   }
 
-  // Port in use: treat as an existing dev server on that port.
+  const selected = await allocatePort(preferredPort);
   return {
-    port: preferredPort,
-    requiresSpawn: false,
-    reusedPreferred: true,
+    port: selected.port,
+    requiresSpawn: true,
+    reusedPreferred: false,
   };
 }
 

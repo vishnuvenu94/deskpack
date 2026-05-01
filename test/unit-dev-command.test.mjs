@@ -15,12 +15,15 @@ test("planFrontendDevLaunch reuses preferred port when free", async () => {
   });
 });
 
-test("planFrontendDevLaunch reuses busy preferred port without spawning", async () => {
-  const plan = await planFrontendDevLaunch(5173, true);
+test("planFrontendDevLaunch allocates when preferred port is reported busy", async () => {
+  const plan = await planFrontendDevLaunch(5173, true, async () => ({
+    port: 5174,
+    reusedPreferred: false,
+  }));
   assert.deepEqual(plan, {
-    port: 5173,
-    requiresSpawn: false,
-    reusedPreferred: true,
+    port: 5174,
+    requiresSpawn: true,
+    reusedPreferred: false,
   });
 });
 

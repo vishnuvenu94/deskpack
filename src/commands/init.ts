@@ -8,7 +8,7 @@ import { generateElectronMain } from "../generate/electron-main.js";
 import { generateElectronBuilderConfig } from "../generate/electron-config.js";
 import { generateDesktopPackageJson } from "../generate/package-json.js";
 import { topologyDescription } from "../detect/topology.js";
-import { exec, resolvePlatformCommand } from "../utils/exec.js";
+import { exec, resolveLocalBin, resolvePlatformCommand } from "../utils/exec.js";
 import { log } from "../utils/logger.js";
 import type { DeskpackConfig } from "../types.js";
 
@@ -229,7 +229,12 @@ export async function initCommand(
     path.join(desktopDir, "package.json"),
     generateDesktopPackageJson(
       config,
-      resolveNativeDependencyVersions(rootDir, config.backend.path, config.backend.nativeDeps),
+      resolveNativeDependencyVersions(
+        rootDir,
+        config.backend.path,
+        config.backend.nativeDeps,
+        project.monorepo.workspaces,
+      ),
     ),
   );
   log.success(`Created ${chalk.cyan(".deskpack/desktop/package.json")}`);
@@ -260,6 +265,7 @@ export async function initCommand(
         log.dim(result.stderr);
         throw new Error("npm install failed");
       }
+      validateDesktopDependencies(desktopDir);
       spinner.succeed("Electron installed");
     } catch (error) {
       spinner.fail("Failed to install Electron");
@@ -290,6 +296,7 @@ function resolveNativeDependencyVersions(
   rootDir: string,
   backendPath: string,
   nativeDeps: string[],
+  workspacePaths: string[] = [],
 ): Record<string, string> {
   const versions: Record<string, string> = {};
   if (nativeDeps.length === 0) return versions;
@@ -297,6 +304,9 @@ function resolveNativeDependencyVersions(
   const manifestPaths = [
     path.join(rootDir, backendPath || ".", "package.json"),
     path.join(rootDir, "package.json"),
+    ...workspacePaths.map((workspacePath) =>
+      path.join(rootDir, workspacePath, "package.json"),
+    ),
   ];
 
   for (const manifestPath of manifestPaths) {
@@ -351,4 +361,21 @@ function resolveNativeDependencyVersions(
   }
 
   return versions;
+}
+
+function validateDesktopDependencies(desktopDir: string): void {
+  const missing: string[] = [];
+  if (!fs.existsSync(path.join(desktopDir, "node_modules", "electron"))) {
+    missing.push("electron");
+  }
+  if (!fs.existsSync(resolveLocalBin(desktopDir, "electron-builder"))) {
+    missing.push("electron-builder");
+  }
+
+  if (missing.length > 0) {
+    throw new Error(
+      `Desktop dependency install is incomplete: missing ${missing.join(", ")}. ` +
+        "Run `cd .deskpack/desktop && npm install`, then retry.",
+    );
+  }
 }

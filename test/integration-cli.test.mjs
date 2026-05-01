@@ -147,6 +147,49 @@ test("deskpack init writes proxyRewrite for npm workspace with Vite rewrite", ()
   assert.match(mainCjs, /function applyProxyRewrite/);
 });
 
+test("deskpack init pins native deps from workspace package manifests", () => {
+  const projectDir = copyFixtureToTemp("monorepo-npm");
+  const rootPackagePath = path.join(projectDir, "package.json");
+  const apiPackagePath = path.join(projectDir, "apps", "api", "package.json");
+  const nativePackageDir = path.join(projectDir, "packages", "native-runtime");
+
+  const rootPackage = JSON.parse(fs.readFileSync(rootPackagePath, "utf-8"));
+  rootPackage.workspaces = ["apps/*", "packages/*"];
+  fs.writeFileSync(rootPackagePath, JSON.stringify(rootPackage, null, 2) + "\n");
+
+  const apiPackage = JSON.parse(fs.readFileSync(apiPackagePath, "utf-8"));
+  apiPackage.dependencies["@fixture/native-runtime"] = "workspace:*";
+  fs.writeFileSync(apiPackagePath, JSON.stringify(apiPackage, null, 2) + "\n");
+
+  fs.mkdirSync(nativePackageDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(nativePackageDir, "package.json"),
+    JSON.stringify(
+      {
+        name: "@fixture/native-runtime",
+        version: "1.0.0",
+        private: true,
+        dependencies: {
+          sharp: "^0.33.0",
+        },
+      },
+      null,
+      2,
+    ) + "\n",
+  );
+
+  const result = runCli(["init", "--yes", "--force"], projectDir, {
+    DESKPACK_SKIP_ELECTRON_INSTALL: "1",
+  });
+
+  assert.equal(result.status, 0, commandOutput(result));
+
+  const desktopPackage = JSON.parse(
+    fs.readFileSync(path.join(projectDir, ".deskpack", "desktop", "package.json"), "utf-8"),
+  );
+  assert.equal(desktopPackage.dependencies.sharp, "^0.33.0");
+});
+
 test("deskpack init detects tRPC API prefix without Vite proxy config", () => {
   const projectDir = copyFixtureToTemp("trpc-fullstack");
 
