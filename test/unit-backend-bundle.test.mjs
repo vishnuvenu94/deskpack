@@ -6,6 +6,7 @@ import { spawnSync } from "node:child_process";
 import test from "node:test";
 import { bundleBackend } from "../dist/build/backend.js";
 import { rebuildBetterSqlite3ForElectron } from "../dist/build/better-sqlite3.js";
+import { generatePrismaClient } from "../dist/build/prisma.js";
 import { copyRuntimeDependencies } from "../dist/build/runtime-deps.js";
 
 function sampleConfig(projectDir) {
@@ -192,6 +193,77 @@ test("copyRuntimeDependencies copies Prisma generated client engines", () => {
     ),
   );
   assert.ok(fs.existsSync(path.join(outDir, "node_modules", "@prisma", "client", "package.json")));
+});
+
+test("generatePrismaClient runs local Prisma CLI with detected nested schema", async () => {
+  const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), "deskpack-prisma-generate-"));
+  const backendDir = path.join(projectDir, "backend");
+  const schemaDir = path.join(backendDir, "src", "prisma");
+  const binDir = path.join(backendDir, "node_modules", ".bin");
+
+  fs.mkdirSync(schemaDir, { recursive: true });
+  fs.mkdirSync(binDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(backendDir, "package.json"),
+    JSON.stringify({
+      dependencies: { "@prisma/client": "5.22.0" },
+      devDependencies: { prisma: "5.22.0" },
+    }),
+  );
+  fs.writeFileSync(
+    path.join(schemaDir, "schema.prisma"),
+    [
+      "datasource db {",
+      '  provider = "sqlite"',
+      '  url = env("DATABASE_URL")',
+      "}",
+      "",
+      "generator client {",
+      '  provider = "prisma-client-js"',
+      "}",
+      "",
+    ].join("\n"),
+  );
+
+  const prismaBin = path.join(binDir, "prisma");
+  fs.writeFileSync(
+    prismaBin,
+    [
+      "#!/usr/bin/env node",
+      'const fs = require("node:fs");',
+      'const path = require("node:path");',
+      'fs.writeFileSync(path.join(process.cwd(), "prisma-args.json"), JSON.stringify(process.argv.slice(2)));',
+      "",
+    ].join("\n"),
+  );
+  fs.chmodSync(prismaBin, 0o755);
+
+  const config = sampleConfig(projectDir);
+  config.backend.path = "backend";
+  config.database = {
+    provider: "sqlite",
+    mode: "managed-local",
+    driver: "prisma",
+    runtimeFileName: "app.db",
+    userDataSubdir: "database",
+    env: {
+      pathVar: "DESKPACK_DB_PATH",
+      urlVar: "DATABASE_URL",
+    },
+    migrations: {
+      tool: "prisma",
+      path: "backend/src/prisma/migrations",
+      autoRun: false,
+    },
+    warnings: [],
+  };
+
+  await generatePrismaClient(projectDir, config);
+
+  assert.deepEqual(
+    JSON.parse(fs.readFileSync(path.join(backendDir, "prisma-args.json"), "utf-8")),
+    ["generate", "--schema", "src/prisma/schema.prisma"],
+  );
 });
 
 /** Mirrors libsql optional platform packages (see `libsql` package optionalDependencies). */

@@ -6,6 +6,7 @@ import { bundleBackend } from "../build/backend.js";
 import { copyRuntimeDependencies } from "../build/runtime-deps.js";
 import { copyNextStandaloneRuntime } from "../build/next-runtime.js";
 import { copyDatabaseAssets } from "../build/database.js";
+import { generatePrismaClient } from "../build/prisma.js";
 import { rebuildBetterSqlite3ForElectron } from "../build/better-sqlite3.js";
 import { packageElectron } from "../build/package.js";
 import {
@@ -115,6 +116,7 @@ export async function buildCommand(
 
   if (config.topology === "next-standalone-runtime") {
     const nextRuntimeDir = path.join(serverDir, "next");
+    await generatePrismaClient(rootDir, config);
     copyNextStandaloneRuntime(rootDir, config, serverDir);
     copyDatabaseAssets(rootDir, config, serverDir);
     await rebuildBetterSqlite3ForElectron(rootDir, desktopDir, nextRuntimeDir, config, {
@@ -196,6 +198,7 @@ export async function buildCommand(
   if (config.topology === "frontend-only-static" || config.backend.path === "") {
     log.success("No backend detected; skipping backend bundle");
   } else {
+    await generatePrismaClient(rootDir, config);
     await bundleBackend(rootDir, config, serverDir);
     copyRuntimeDependencies(rootDir, config, serverDir);
     await rebuildBetterSqlite3ForElectron(rootDir, desktopDir, serverDir, config, {
