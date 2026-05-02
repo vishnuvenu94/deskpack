@@ -3,6 +3,7 @@ import path from "node:path";
 import type { DeskpackConfig } from "../types.js";
 import { execPassthrough, resolvePlatformCommand } from "../utils/exec.js";
 import { log } from "../utils/logger.js";
+import { hasWindowsNativeRuntimePrerequisite } from "./windows-runtime.js";
 
 /**
  * Build the frontend by running the project's existing build command
@@ -71,7 +72,7 @@ export function frontendBuildScriptArgs(
 ): string[] {
   if (platform !== "win32") return [];
   if (config.frontend.framework !== "next") return [];
-  if (config.backend.nativeDeps.length === 0) return [];
+  if (!hasWindowsNativeRuntimePrerequisite(config)) return [];
 
   const buildCommand = config.frontend.buildCommand.trim();
   if (!/^next(?:\.(?:cmd|exe|bat|com))?\s+build(?:\s|$)/i.test(buildCommand)) {

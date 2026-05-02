@@ -51,6 +51,25 @@ function sampleConfig() {
   };
 }
 
+function managedDrizzleSqliteDatabase() {
+  return {
+    provider: "sqlite",
+    mode: "managed-local",
+    driver: "drizzle",
+    runtimeFileName: "app.db",
+    userDataSubdir: "database",
+    env: {
+      pathVar: "DESKPACK_DB_PATH",
+      urlVar: "DATABASE_URL",
+    },
+    migrations: {
+      tool: "drizzle",
+      autoRun: false,
+    },
+    warnings: [],
+  };
+}
+
 test("loadConfig reads deskpack.config.json and normalizes health path defaults", () => {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "deskpack-config-test-"));
   const configPath = path.join(tmpDir, "deskpack.config.json");
@@ -144,6 +163,10 @@ test("windows Next native builds opt into webpack unless already configured", ()
 
   config.frontend.buildCommand = "next build";
   assert.deepEqual(frontendBuildScriptArgs(config, "darwin"), []);
+
+  config.backend.nativeDeps = [];
+  config.database = managedDrizzleSqliteDatabase();
+  assert.deepEqual(frontendBuildScriptArgs(config, "win32"), ["--webpack"]);
 });
 
 test("generated electron runtime includes API proxy for frontend-static-separate topology", () => {
@@ -238,6 +261,29 @@ test("generated electron runtime starts Next standalone server", () => {
   assert.match(runtime, /HOSTNAME: "127\.0\.0\.1"/);
   assert.match(runtime, /deskpack-next-launcher\.cjs/);
   assert.match(runtime, /serviceName: "deskpack-next"/);
+});
+
+test("generated electron runtime probes libsql before opening packaged Windows UI", () => {
+  const config = sampleConfig();
+  config.frontend.framework = "next";
+  config.frontend.nextRuntime = {
+    mode: "standalone",
+    standaloneDir: ".next/standalone",
+    serverFile: ".next/standalone/server.js",
+    staticDir: ".next/static",
+    publicDir: "public",
+    warnings: [],
+  };
+  config.topology = "next-standalone-runtime";
+  config.database = managedDrizzleSqliteDatabase();
+
+  const runtime = generateElectronMain(config);
+  assert.match(runtime, /SHOULD_PROBE_LIBSQL_RUNTIME = true/);
+  assert.match(runtime, /function assertWindowsNativeRuntimePrerequisites/);
+  assert.match(runtime, /node_modules", "libsql"/);
+  assert.match(runtime, /createRequire\(probe\.packageJsonPath\)\(probe\.request\)/);
+  assert.match(runtime, /assertWindowsNativeRuntimePrerequisites\(\);\s+const loadUrl = await resolveLoadUrl\(\);/);
+  assert.match(runtime, /Microsoft Visual C\+\+ Redistributable 2015-2022 x64/);
 });
 
 test("generated electron runtime prepares managed SQLite env", () => {

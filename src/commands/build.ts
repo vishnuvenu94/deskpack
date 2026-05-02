@@ -13,6 +13,7 @@ import {
   normalizeBuildPlatform,
   platformLabel,
 } from "../build/platform.js";
+import { hasWindowsNativeRuntimePrerequisite } from "../build/windows-runtime.js";
 import { generateElectronMain } from "../generate/electron-main.js";
 import { loadConfig } from "../config.js";
 import { detectFrontend } from "../detect/frontend.js";
@@ -298,7 +299,7 @@ function warnWindowsNativeRuntimePrerequisite(
   targetPlatform: NodeJS.Platform,
 ): void {
   if (targetPlatform !== "win32") return;
-  if (config.backend.nativeDeps.length === 0) return;
+  if (!hasWindowsNativeRuntimePrerequisite(config)) return;
 
   log.warn(
     "Windows users may need Microsoft Visual C++ Redistributable 2015-2022 x64 for native dependencies.",
