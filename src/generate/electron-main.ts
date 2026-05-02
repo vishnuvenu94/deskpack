@@ -244,26 +244,67 @@ function formatNativeCrashDetail(detail) {
 function assertWindowsNativeRuntimePrerequisites() {
   if (isDev || process.platform !== "win32" || !SHOULD_PROBE_LIBSQL_RUNTIME) return;
 
-  const probes = [
+  const serverRoot = path.join(process.resourcesPath, "server");
+  const nativeAddonPaths = uniqueExistingPaths([
+    path.join(serverRoot, "next", "node_modules", "@libsql", "win32-x64-msvc", "index.node"),
+    path.join(serverRoot, "node_modules", "@libsql", "win32-x64-msvc", "index.node"),
+    ...findLibsqlWindowsNativeAddons(serverRoot),
+  ]);
+
+  for (const nativeAddonPath of nativeAddonPaths) {
+    try {
+      require(nativeAddonPath);
+      return;
+    } catch (error) {
+      const detail =
+        error && typeof error.stack === "string"
+          ? error.stack
+          : toErrorMessage(error);
+      throw new Error(formatNativeCrashDetail(detail));
+    }
+  }
+
+  const moduleProbes = [
+    path.join(serverRoot, "next", "node_modules", "libsql", "index.js"),
+    path.join(serverRoot, "node_modules", "libsql", "index.js"),
+    path.join(serverRoot, "next", "node_modules", "@libsql", "client", "lib-cjs", "sqlite3.js"),
+    path.join(serverRoot, "node_modules", "@libsql", "client", "lib-cjs", "sqlite3.js"),
+  ];
+
+  for (const modulePath of moduleProbes) {
+    if (!fs.existsSync(modulePath)) continue;
+    try {
+      require(modulePath);
+      return;
+    } catch (error) {
+      const detail =
+        error && typeof error.stack === "string"
+          ? error.stack
+          : toErrorMessage(error);
+      throw new Error(formatNativeCrashDetail(detail));
+    }
+  }
+
+  const packageProbes = [
     {
-      packageJsonPath: path.join(process.resourcesPath, "server", "next", "node_modules", "libsql", "package.json"),
+      packageJsonPath: path.join(serverRoot, "next", "node_modules", "libsql", "package.json"),
       request: "libsql",
     },
     {
-      packageJsonPath: path.join(process.resourcesPath, "server", "node_modules", "libsql", "package.json"),
+      packageJsonPath: path.join(serverRoot, "node_modules", "libsql", "package.json"),
       request: "libsql",
     },
     {
-      packageJsonPath: path.join(process.resourcesPath, "server", "next", "node_modules", "@libsql", "client", "package.json"),
+      packageJsonPath: path.join(serverRoot, "next", "node_modules", "@libsql", "client", "package.json"),
       request: "@libsql/client",
     },
     {
-      packageJsonPath: path.join(process.resourcesPath, "server", "node_modules", "@libsql", "client", "package.json"),
+      packageJsonPath: path.join(serverRoot, "node_modules", "@libsql", "client", "package.json"),
       request: "@libsql/client",
     },
   ];
 
-  for (const probe of probes) {
+  for (const probe of packageProbes) {
     if (!fs.existsSync(probe.packageJsonPath)) continue;
     try {
       createRequire(probe.packageJsonPath)(probe.request);
@@ -276,6 +317,50 @@ function assertWindowsNativeRuntimePrerequisites() {
       throw new Error(formatNativeCrashDetail(detail));
     }
   }
+}
+
+function uniqueExistingPaths(paths) {
+  const seen = new Set();
+  const result = [];
+  for (const filePath of paths) {
+    const normalized = path.normalize(filePath);
+    if (seen.has(normalized) || !fs.existsSync(normalized)) continue;
+    seen.add(normalized);
+    result.push(normalized);
+  }
+  return result;
+}
+
+function findLibsqlWindowsNativeAddons(rootDir) {
+  const results = [];
+  if (!fs.existsSync(rootDir)) return results;
+
+  const suffix = path.join("@libsql", "win32-x64-msvc", "index.node").toLowerCase();
+  const stack = [rootDir];
+  while (stack.length > 0) {
+    const dir = stack.pop();
+    let entries = [];
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch (_error) {
+      continue;
+    }
+
+    for (const entry of entries) {
+      const fullPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        stack.push(fullPath);
+      } else if (
+        entry.isFile() &&
+        entry.name === "index.node" &&
+        fullPath.toLowerCase().endsWith(suffix)
+      ) {
+        results.push(fullPath);
+      }
+    }
+  }
+
+  return results;
 }
 
 function showStartupError(message) {

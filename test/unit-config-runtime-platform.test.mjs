@@ -281,6 +281,10 @@ test("generated electron runtime probes libsql before opening packaged Windows U
   const runtime = generateElectronMain(config);
   assert.match(runtime, /SHOULD_PROBE_LIBSQL_RUNTIME = true/);
   assert.match(runtime, /function assertWindowsNativeRuntimePrerequisites/);
+  assert.match(runtime, /function findLibsqlWindowsNativeAddons/);
+  assert.match(runtime, /win32-x64-msvc", "index\.node"/);
+  assert.match(runtime, /require\(nativeAddonPath\)/);
+  assert.match(runtime, /"@libsql", "client", "lib-cjs", "sqlite3\.js"/);
   assert.match(runtime, /node_modules", "libsql"/);
   assert.match(runtime, /createRequire\(probe\.packageJsonPath\)\(probe\.request\)/);
   assert.match(runtime, /assertWindowsNativeRuntimePrerequisites\(\);\s+const loadUrl = await resolveLoadUrl\(\);/);
