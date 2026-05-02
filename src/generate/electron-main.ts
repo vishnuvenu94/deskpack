@@ -228,11 +228,10 @@ function toErrorMessage(error) {
 function formatNativeCrashDetail(detail) {
   if (
     process.platform === "win32" &&
-    /ERR_DLOPEN_FAILED|\\.node|The specified module could not be found/i.test(detail) &&
-    /@libsql|libsql|win32-x64-msvc|VCRUNTIME|MSVCP/i.test(detail)
+    /ERR_DLOPEN_FAILED|\\.node|The specified module could not be found|VCRUNTIME|MSVCP/i.test(detail)
   ) {
     return (
-      "This app requires the Microsoft Visual C++ Redistributable 2015-2022 x64 to run its native database dependency.\\n\\n" +
+      "This app requires the Microsoft Visual C++ Redistributable 2015-2022 x64 to load one of its native dependencies.\\n\\n" +
       "Install it from https://aka.ms/vc14/vc_redist.x64.exe, then restart the app.\\n\\n" +
       "Original error:\\n" +
       detail

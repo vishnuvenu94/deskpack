@@ -109,6 +109,7 @@ test("generated electron runtime includes single-instance + hardening logic", ()
   assert.match(runtime, /function preparePlaywrightBrowsersEnv/);
   assert.match(runtime, /PLAYWRIGHT_BROWSERS_PATH/);
   assert.match(runtime, /Microsoft Visual C\+\+ Redistributable 2015-2022 x64/);
+  assert.match(runtime, /load one of its native dependencies/);
   assert.match(runtime, /https:\/\/aka\.ms\/vc14\/vc_redist\.x64\.exe/);
   assert.match(runtime, /\[deskpack\]/);
   assert.doesNotMatch(runtime, /shipdesk/i);
