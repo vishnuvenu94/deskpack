@@ -8,6 +8,7 @@ import {
   createManagedSqlitePreload,
   detectHardcodedSqlitePaths,
 } from "../dist/build/database.js";
+import { createBackendPortShim } from "../dist/build/backend.js";
 import { frontendBuildScriptArgs } from "../dist/build/frontend.js";
 import { loadConfig } from "../dist/config.js";
 import { generateElectronMain } from "../dist/generate/electron-main.js";
@@ -115,11 +116,171 @@ test("generated electron runtime includes single-instance + hardening logic", ()
   assert.doesNotMatch(runtime, /shipdesk/i);
 });
 
+test("generated electron runtime starts bundled backend on fallback port", () => {
+  const config = sampleConfig();
+  config.topology = "frontend-static-separate";
+  config.backend = {
+    path: ".",
+    framework: "express",
+    entry: "server.js",
+    devPort: 3000,
+    nativeDeps: [],
+    healthCheckPath: "/health",
+    apiPrefixes: ["/api"],
+  };
+
+  const runtime = generateElectronMain(config);
+  assert.match(runtime, /async function startBundledBackend\(preferredPort\)/);
+  assert.match(runtime, /const backendPort = await resolvePort\(preferredPort, "backend"\)/);
+  assert.match(runtime, /DESKPACK_BACKEND_PORT: String\(backendPort\)/);
+  assert.match(runtime, /DESKPACK_PREFERRED_BACKEND_PORT: String\(preferredPort\)/);
+});
+
+test("generated electron runtime redirects localhost and loopback backend origins", () => {
+  const config = sampleConfig();
+  config.topology = "frontend-static-separate";
+  config.backend = {
+    path: ".",
+    framework: "express",
+    entry: "server.js",
+    devPort: 3000,
+    nativeDeps: [],
+    healthCheckPath: "/health",
+    apiPrefixes: ["/api"],
+  };
+
+  const runtime = generateElectronMain(config);
+  assert.match(runtime, /const devBackendOrigins = \[/);
+  assert.match(runtime, /"http:\/\/localhost:" \+ PREFERRED_API_PORT/);
+  assert.match(runtime, /"http:\/\/127\.0\.0\.1:" \+ PREFERRED_API_PORT/);
+  assert.match(runtime, /urls: devBackendOrigins\.map\(\(origin\) => origin \+ "\/\*"\)/);
+  assert.match(runtime, /details\.url\.replace\(matchedOrigin, actualBackendOrigin\)/);
+});
+
 test("generated static server supports TanStack _shell.html and prerendered HTML", () => {
   const runtime = generateElectronMain(sampleConfig());
   assert.match(runtime, /_shell\.html/);
   assert.match(runtime, /resolvePackagedHtmlEntry/);
   assert.match(runtime, /hasAnyHtmlUnder/);
+});
+
+function runBackendPortShim({
+  preferredPort = "3000",
+  actualPort = "43101",
+  env = {},
+} = {}) {
+  const listenCalls = [];
+  class FakeNetServer {
+    listen(...args) {
+      listenCalls.push(["net", args]);
+      return this;
+    }
+  }
+  class FakeHttpServer {
+    listen(...args) {
+      listenCalls.push(["http", args]);
+      return this;
+    }
+  }
+  class FakeHttpsServer {
+    listen(...args) {
+      listenCalls.push(["https", args]);
+      return this;
+    }
+  }
+
+  const warnings = [];
+  const context = {
+    process: {
+      env: {
+        DESKPACK_PREFERRED_BACKEND_PORT: preferredPort,
+        DESKPACK_BACKEND_PORT: actualPort,
+        ...env,
+      },
+    },
+    console: {
+      warn(message) {
+        warnings.push(message);
+      },
+    },
+    require(specifier) {
+      if (specifier === "node:net") return { Server: FakeNetServer };
+      if (specifier === "node:http") return { Server: FakeHttpServer };
+      if (specifier === "node:https") return { Server: FakeHttpsServer };
+      throw new Error(`Unexpected require: ${specifier}`);
+    },
+  };
+
+  vm.runInNewContext(createBackendPortShim(), context);
+  return {
+    netServer: new FakeNetServer(),
+    httpServer: new FakeHttpServer(),
+    httpsServer: new FakeHttpsServer(),
+    listenCalls,
+    warnings,
+  };
+}
+
+test("backend port shim rewrites numeric listen port", () => {
+  const { httpServer, listenCalls, warnings } = runBackendPortShim();
+  const callback = () => {};
+
+  assert.equal(httpServer.listen(3000, "0.0.0.0", callback), httpServer);
+  assert.equal(listenCalls[0][0], "http");
+  assert.deepEqual(listenCalls[0][1], [43101, "0.0.0.0", callback]);
+  assert.equal(warnings.length, 1);
+});
+
+test("backend port shim rewrites string listen port", () => {
+  const { httpServer, listenCalls } = runBackendPortShim();
+
+  httpServer.listen("3000", () => {});
+  assert.equal(listenCalls[0][1][0], 43101);
+});
+
+test("backend port shim rewrites options object listen port", () => {
+  const { httpServer, listenCalls } = runBackendPortShim();
+
+  httpServer.listen({ port: 3000, host: "127.0.0.1" });
+  assert.deepEqual(JSON.parse(JSON.stringify(listenCalls[0][1][0])), {
+    port: 43101,
+    host: "127.0.0.1",
+  });
+});
+
+test("backend port shim leaves unrelated listen calls untouched", () => {
+  const { httpServer, listenCalls, warnings } = runBackendPortShim();
+  const callback = () => {};
+
+  httpServer.listen(3100, callback);
+  httpServer.listen("/tmp/app.sock", callback);
+  httpServer.listen({ port: 3100, host: "127.0.0.1" });
+
+  assert.equal(listenCalls[0][1][0], 3100);
+  assert.equal(listenCalls[1][1][0], "/tmp/app.sock");
+  assert.deepEqual(listenCalls[2][1][0], { port: 3100, host: "127.0.0.1" });
+  assert.equal(warnings.length, 0);
+});
+
+test("backend port shim stays inactive when selected port matches preferred port", () => {
+  const { httpServer, listenCalls, warnings } = runBackendPortShim({ actualPort: "3000" });
+
+  httpServer.listen(3000);
+  assert.equal(listenCalls[0][1][0], 3000);
+  assert.equal(warnings.length, 0);
+});
+
+test("backend port shim also rewrites net and https server listen ports", () => {
+  const { netServer, httpsServer, listenCalls, warnings } = runBackendPortShim();
+
+  netServer.listen(3000);
+  httpsServer.listen({ port: "3000" });
+
+  assert.deepEqual(JSON.parse(JSON.stringify(listenCalls.map(([label, args]) => [label, args[0]]))), [
+    ["net", 43101],
+    ["https", { port: 43101 }],
+  ]);
+  assert.equal(warnings.length, 1);
 });
 
 test("platform policy allows same-platform builds", () => {
@@ -214,7 +375,7 @@ test("generated electron runtime verifies backend-served frontend routes", () =>
   assert.match(runtime, /did not serve frontend routes/);
 });
 
-test("generated electron runtime requires the configured backend port", () => {
+test("generated electron runtime falls back when configured backend port is busy", () => {
   const config = sampleConfig();
   config.topology = "frontend-static-separate";
   config.backend = {
@@ -228,12 +389,15 @@ test("generated electron runtime requires the configured backend port", () => {
   };
 
   const runtime = generateElectronMain(config);
-  assert.match(runtime, /requireConfiguredPort/);
-  assert.match(
-    runtime,
-    /Configured[\s\S]*is unavailable\. Stop the process using it or update deskpack\.config\.json\./,
-  );
+  assert.match(runtime, /resolvePort/);
+  assert.match(runtime, /tester\.listen\(\{ port \}\)/);
+  assert.match(runtime, /tester\.listen\(\{ port: 0 \}\)/);
+  assert.match(runtime, /Preferred " \+/);
+  assert.match(runtime, /" port " \+/);
+  assert.match(runtime, /" is unavailable\. Falling back to " \+/);
+  assert.match(runtime, /startBundledBackend\(PREFERRED_API_PORT\)/);
   assert.match(runtime, /DESKPACK_BACKEND_PORT/);
+  assert.match(runtime, /DESKPACK_PREFERRED_BACKEND_PORT/);
 });
 
 test("frontend-only-static topology has no API proxy when backendPort is 0", () => {

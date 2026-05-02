@@ -468,7 +468,7 @@ async function isPortFree(port) {
     tester.once("listening", () => {
       tester.close(() => resolve(true));
     });
-    tester.listen({ host: "127.0.0.1", port });
+    tester.listen({ port });
   });
 }
 
@@ -492,7 +492,7 @@ async function allocateFallbackPort() {
         resolve(port);
       });
     });
-    tester.listen({ host: "127.0.0.1", port: 0 });
+    tester.listen({ port: 0 });
   });
 }
 
@@ -889,7 +889,7 @@ async function startStaticServer(preferredPort, backendPort) {
 }
 
 async function startBundledBackend(preferredPort) {
-  const backendPort = await requireConfiguredPort(preferredPort, "backend");
+  const backendPort = await resolvePort(preferredPort, "backend");
   const serverPath = path.join(process.resourcesPath, "server", "server.mjs");
   if (!fs.existsSync(serverPath)) {
     throw new Error("Backend bundle missing: " + serverPath);
@@ -902,6 +902,7 @@ async function startBundledBackend(preferredPort) {
     env: serverRuntimeEnv({
       PORT: String(backendPort),
       DESKPACK_BACKEND_PORT: String(backendPort),
+      DESKPACK_PREFERRED_BACKEND_PORT: String(preferredPort),
       NODE_ENV: "production",
     }),
     execArgv: managedSqliteExecArgv(),
@@ -1106,14 +1107,20 @@ function corsOriginFromDetails(details) {
 }
 
 function setupApiInterceptor(actualBackendPort) {
-  const devBackendOrigin = "http://localhost:" + PREFERRED_API_PORT;
+  const devBackendOrigins = [
+    "http://localhost:" + PREFERRED_API_PORT,
+    "http://127.0.0.1:" + PREFERRED_API_PORT,
+  ];
   const actualBackendOrigin = "http://127.0.0.1:" + actualBackendPort;
-  const backendOrigins = [...new Set([devBackendOrigin, actualBackendOrigin])];
+  const backendOrigins = [...new Set([...devBackendOrigins, actualBackendOrigin])];
 
   if (PREFERRED_API_PORT !== actualBackendPort) {
-    const filter = { urls: [devBackendOrigin + "/*"] };
+    const filter = { urls: devBackendOrigins.map((origin) => origin + "/*") };
     session.defaultSession.webRequest.onBeforeRequest(filter, (details, callback) => {
-      const redirectURL = details.url.replace(devBackendOrigin, actualBackendOrigin);
+      const matchedOrigin = devBackendOrigins.find((origin) => details.url.startsWith(origin));
+      const redirectURL = matchedOrigin
+        ? details.url.replace(matchedOrigin, actualBackendOrigin)
+        : details.url;
       logInfo("Redirecting " + details.url + " → " + redirectURL);
       callback({ redirectURL });
     });
@@ -1141,7 +1148,7 @@ function setupApiInterceptor(actualBackendPort) {
     callback({ responseHeaders: headers });
   });
 
-  logInfo("API interceptor active: " + devBackendOrigin + " → " + actualBackendOrigin);
+  logInfo("API interceptor active: " + devBackendOrigins.join(", ") + " → " + actualBackendOrigin);
 }
 
 async function resolveLoadUrl() {
